@@ -20,31 +20,17 @@ if (!JWT_SECRET) throw new Error('JWT_SECRET is not defined in .env');
 if (!FRONTEND_URL) throw new Error('FRONTEND_URL is not defined in .env');
 
 // ---------------------
-// Allowed Origins
-// ---------------------
-const allowedOrigins = [
-  'http://localhost:3000',
-  FRONTEND_URL.replace(/\/$/, ''),
-];
-
-console.log('Allowed origins:', allowedOrigins);
-
-// ---------------------
 // Middleware
 // ---------------------
 app.use(helmet());
 app.use(express.json());
+
+// CORS: allow frontend URL
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
-    else {
-      console.warn(`CORS blocked for origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+  origin: [FRONTEND_URL.replace(/\/$/, ''), 'http://localhost:3000'], // frontend + localhost for testing
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
+  credentials: true
 }));
 app.options('*', cors());
 
@@ -54,8 +40,6 @@ app.options('*', cors());
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000,
-  retryWrites: true,
 })
 .then(() => console.log('✅ MongoDB connected'))
 .catch(err => {
@@ -105,7 +89,6 @@ const verifyToken = (req, res, next) => {
 // Routes
 // ---------------------
 app.get('/', (req, res) => res.send('🚀 Laundry backend is running!'));
-
 app.get('/health', (req, res) => res.json({ status: 'OK', message: 'Server is healthy' }));
 app.get('/status', (req, res) => res.json({ status: 'OK', message: 'Server is running' }));
 
@@ -227,9 +210,6 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
 const wss = new WebSocket.Server({ server, path: '/ws' });
 wss.on('connection', (ws, req) => {
-  const origin = req.headers.origin?.replace(/\/$/, '') || '';
-  if (origin && !allowedOrigins.includes(origin)) return ws.close(1008, 'Origin not allowed');
-
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to WebSocket server' }));
 
   ws.on('message', message => {
