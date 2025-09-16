@@ -25,14 +25,24 @@ if (!FRONTEND_URL) throw new Error('FRONTEND_URL is not defined in .env');
 app.use(helmet());
 app.use(express.json());
 
+// ---------------------
 // CORS: allow frontend URL
+// ---------------------
 app.use(cors({
   origin: (origin, callback) => {
-    const allowedOrigins = [FRONTEND_URL.replace(/\/$/, ''), 'http://localhost:3000'];
-    console.log('Request Origin:', origin); // Debug log
+    const allowedOrigins = [
+      FRONTEND_URL.replace(/\/$/, ''),  // from .env
+      'https://sevas-laundry-frontend.onrender.com', // ensure exact Render domain
+      'http://localhost:3000',          // local dev
+      'http://localhost:3001'           // local dev
+    ];
+
+    console.log('🌍 Request Origin:', origin); // Debug log
+
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.error('❌ CORS blocked:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
