@@ -27,12 +27,19 @@ app.use(express.json());
 
 // CORS: allow frontend URL
 app.use(cors({
-  origin: [FRONTEND_URL.replace(/\/$/, ''), 'http://localhost:3000'], // frontend + localhost for testing
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
+  origin: (origin, callback) => {
+    const allowedOrigins = [FRONTEND_URL.replace(/\/$/, ''), 'http://localhost:3000'];
+    console.log('Request Origin:', origin); // Debug log
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-app.options('*', cors());
 
 // ---------------------
 // MongoDB Connection
@@ -41,11 +48,11 @@ mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ MongoDB connected'))
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err.message);
-  process.exit(1);
-});
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err.message);
+    process.exit(1);
+  });
 
 // ---------------------
 // Schemas & Models
@@ -89,8 +96,15 @@ const verifyToken = (req, res, next) => {
 // Routes
 // ---------------------
 app.get('/', (req, res) => res.send('🚀 Laundry backend is running!'));
+app.get('/healthcheck', (req, res) => {
+  console.log('Healthcheck called');
+  res.json({ status: 'OK', message: 'Server is alive' });
+});
 app.get('/health', (req, res) => res.json({ status: 'OK', message: 'Server is healthy' }));
-app.get('/status', (req, res) => res.json({ status: 'OK', message: 'Server is running' }));
+app.get('/status', (req, res) => {
+  console.log('GET /status called');
+  res.json({ status: 'OK', message: 'Server is running' });
+});
 
 // Register
 app.post('/register', async (req, res) => {
@@ -114,6 +128,7 @@ app.post('/register', async (req, res) => {
 
 // Login
 app.post('/login', async (req, res) => {
+  console.log('POST /login called with body:', req.body);
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
