@@ -39,7 +39,7 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: [
     FRONTEND_URL.replace(/\/$/, ''),
-    'https://laundry-frontend-nine.vercel.app',
+    'https://laundry-frontend-git-main-djdeepak14s-projects.vercel.app',
     'http://localhost:3000',
     'http://localhost:3001',
   ],
