@@ -12,16 +12,14 @@ const app = express();
 // ---------------------
 // Environment Variables
 // ---------------------
-const { MONGO_URI, JWT_SECRET, FRONTEND_URL, PORT } = process.env;
-const DEFAULT_PORT = 5001; // Ensure port matches frontend
-const SERVER_PORT = PORT || DEFAULT_PORT;
+const { MONGO_URI, JWT_SECRET, FRONTEND_URL } = process.env;
+const SERVER_PORT = process.env.PORT || 5001;
 
 if (!MONGO_URI) throw new Error('MONGO_URI is not defined in .env');
 if (!JWT_SECRET) throw new Error('JWT_SECRET is not defined in .env');
 if (!FRONTEND_URL) throw new Error('FRONTEND_URL is not defined in .env');
 
-// Log environment variables for debugging (excluding sensitive JWT_SECRET)
-console.log(`[INIT] Environment: PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL}, MONGO_URI=${MONGO_URI.substring(0, 10)}...`);
+console.log(`[INIT] PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL}, MONGO_URI=${MONGO_URI.substring(0, 10)}...`);
 
 // ---------------------
 // Middleware
@@ -29,7 +27,7 @@ console.log(`[INIT] Environment: PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_UR
 app.use(helmet());
 app.use(express.json());
 
-// Log all incoming requests for debugging
+// Log all requests
 app.use((req, res, next) => {
   console.log(`📡 ${new Date().toISOString()} - ${req.method} ${req.url} from ${req.headers.origin}`);
   next();
@@ -41,7 +39,6 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: [
     FRONTEND_URL.replace(/\/$/, ''),
-    'https://sevas-laundry-frontend.onrender.com',
     'http://localhost:3000',
     'http://localhost:3001',
   ],
@@ -53,7 +50,7 @@ app.use(cors({
 // ---------------------
 // MongoDB Connection
 // ---------------------
-mongoose.connect(MONGO_URI)
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('✅ MongoDB connected successfully'))
   .catch(err => {
     console.error('❌ MongoDB connection error:', err.message);
@@ -100,9 +97,7 @@ const verifyToken = (req, res, next) => {
 };
 
 const verifyAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied. Admins only.' });
-  }
+  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Access denied. Admins only.' });
   next();
 };
 
@@ -111,11 +106,7 @@ const verifyAdmin = (req, res, next) => {
 // ---------------------
 app.get('/', (req, res) => res.send('🚀 Laundry backend is running!'));
 app.get('/healthcheck', (req, res) => res.json({ status: 'OK', message: 'Server is alive' }));
-app.get('/health', (req, res) => res.json({ status: 'OK', message: 'Server is healthy' }));
-app.get('/status', (req, res) => {
-  console.log('📡 /status endpoint hit');
-  res.json({ status: 'OK', message: 'Server is running' });
-});
+app.get('/status', (req, res) => res.json({ status: 'OK', message: 'Server is running' }));
 
 // Register
 app.post('/register', async (req, res) => {
@@ -139,7 +130,6 @@ app.post('/register', async (req, res) => {
 
 // Login
 app.post('/login', async (req, res) => {
-  console.log('POST /login called with body:', req.body);
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
@@ -150,11 +140,7 @@ app.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid username or password' });
 
-    const token = jwt.sign(
-      { id: user._id, username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '1h' }
-    );
+    const token = jwt.sign({ id: user._id, username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
 
     res.json({ token, userId: user._id, role: user.role });
   } catch (err) {
@@ -163,7 +149,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// User Bookings
+// Bookings
 app.get('/bookings', verifyToken, async (req, res) => {
   try {
     const bookings = await Booking.find({ userId: req.user.id || req.user._id });
@@ -181,7 +167,6 @@ app.post('/bookings', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'All booking fields required' });
     }
 
-    // Prevent duplicate booking
     const existing = await Booking.findOne({
       slotId,
       date: new Date(date),
@@ -203,9 +188,7 @@ app.post('/bookings', verifyToken, async (req, res) => {
     const saved = await booking.save();
 
     wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
-      }
+      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
     });
 
     res.json(saved);
@@ -224,9 +207,7 @@ app.delete('/bookings/:id', verifyToken, async (req, res) => {
     if (!booking) return res.status(404).json({ message: 'Booking not found or not authorized' });
 
     wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'BOOKING_DELETED', bookingId: id }));
-      }
+      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'BOOKING_DELETED', bookingId: id }));
     });
 
     res.json({ message: `Booking ${id} deleted` });
@@ -236,9 +217,7 @@ app.delete('/bookings/:id', verifyToken, async (req, res) => {
   }
 });
 
-// ---------------------
-// Admin Routes
-// ---------------------
+// Admin routes
 app.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const users = await User.find().select('-password');
@@ -273,12 +252,11 @@ app.delete('/admin/users/:id', verifyToken, verifyAdmin, async (req, res) => {
 // WebSocket Server
 // ---------------------
 const server = app.listen(SERVER_PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on http://localhost:${SERVER_PORT}`);
-  console.log(`🌐 WebSocket server available at ws://localhost:${SERVER_PORT}/ws`);
+  console.log(`🚀 Server running on port ${SERVER_PORT}`);
 });
 
 const wss = new WebSocket.Server({ server, path: '/ws' });
-wss.on('connection', (ws) => {
+wss.on('connection', ws => {
   console.log('🔗 WebSocket client connected');
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to WebSocket server' }));
 
@@ -303,17 +281,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error' });
 });
 
-// Handle port conflicts gracefully
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${SERVER_PORT} is already in use. Please free the port or choose another one.`);
-    process.exit(1);
-  } else {
-    console.error('❌ Server error:', err.message);
-  }
-});
-
-// Log server status periodically
+// ---------------------
+// Status Logging
+// ---------------------
 setInterval(() => {
-  console.log(`[STATUS] Server running on http://localhost:${SERVER_PORT} at ${new Date().toISOString()}`);
-}, 60000); // Log every 60 seconds
+  console.log(`[STATUS] Server running on port ${SERVER_PORT} at ${new Date().toISOString()}`);
+}, 60000);
