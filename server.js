@@ -158,9 +158,10 @@ app.post('/login', async (req, res) => {
 });
 
 // Bookings
+// 🔹 Get ALL bookings (for locking slots)
 app.get('/bookings', verifyToken, async (req, res) => {
   try {
-    const bookings = await Booking.find({ userId: req.user.id });
+    const bookings = await Booking.find().populate('userId', 'username');
     res.json(bookings);
   } catch (err) {
     console.error('Get bookings error:', err.message);
@@ -168,6 +169,7 @@ app.get('/bookings', verifyToken, async (req, res) => {
   }
 });
 
+// 🔹 Create booking
 app.post('/bookings', verifyToken, async (req, res) => {
   try {
     const { slotId, machine, machineType, dayName, date, timeSlot, timestamp } = req.body;
@@ -175,13 +177,17 @@ app.post('/bookings', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'All booking fields required' });
     }
 
+    // 🔒 Prevent double booking (by ANY user)
     const existing = await Booking.findOne({
-      slotId,
       date: new Date(date),
-      userId: req.user.id,
+      machine,
+      timeSlot,
     });
-    if (existing) return res.status(400).json({ message: 'Slot already booked' });
+    if (existing) {
+      return res.status(400).json({ message: 'This slot is already booked' });
+    }
 
+    // Save booking
     const booking = new Booking({
       userId: req.user.id,
       slotId,
@@ -195,8 +201,11 @@ app.post('/bookings', verifyToken, async (req, res) => {
 
     const saved = await booking.save();
 
+    // Notify all websocket clients
     wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
+      }
     });
 
     res.json(saved);
@@ -206,6 +215,7 @@ app.post('/bookings', verifyToken, async (req, res) => {
   }
 });
 
+// Delete booking
 app.delete('/bookings/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid booking ID' });
