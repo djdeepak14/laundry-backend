@@ -93,7 +93,7 @@ const verifyToken = (req, res, next) => {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // contains { id, username, role }
+    req.user = decoded; // { id, username, role }
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid token' });
@@ -157,8 +157,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Bookings
-// 🔹 Get ALL bookings (for locking slots)
+// Get all bookings
 app.get('/bookings', verifyToken, async (req, res) => {
   try {
     const bookings = await Booking.find().populate('userId', 'username');
@@ -169,7 +168,7 @@ app.get('/bookings', verifyToken, async (req, res) => {
   }
 });
 
-// 🔹 Create booking
+// Create booking
 app.post('/bookings', verifyToken, async (req, res) => {
   try {
     const { slotId, machine, machineType, dayName, date, timeSlot, timestamp } = req.body;
@@ -177,17 +176,10 @@ app.post('/bookings', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'All booking fields required' });
     }
 
-    // 🔒 Prevent double booking (by ANY user)
-    const existing = await Booking.findOne({
-      date: new Date(date),
-      machine,
-      timeSlot,
-    });
-    if (existing) {
-      return res.status(400).json({ message: 'This slot is already booked' });
-    }
+    // Prevent double booking
+    const existing = await Booking.findOne({ date: new Date(date), machine, timeSlot });
+    if (existing) return res.status(400).json({ message: 'This slot is already booked' });
 
-    // Save booking
     const booking = new Booking({
       userId: req.user.id,
       slotId,
@@ -201,7 +193,6 @@ app.post('/bookings', verifyToken, async (req, res) => {
 
     const saved = await booking.save();
 
-    // Notify all websocket clients
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
@@ -221,11 +212,19 @@ app.delete('/bookings/:id', verifyToken, async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid booking ID' });
 
   try {
-    const booking = await Booking.findOneAndDelete({ _id: id, userId: req.user.id });
+    let booking;
+    if (req.user.role === 'admin') {
+      booking = await Booking.findByIdAndDelete(id);
+    } else {
+      booking = await Booking.findOneAndDelete({ _id: id, userId: req.user.id });
+    }
+
     if (!booking) return res.status(404).json({ message: 'Booking not found or not authorized' });
 
     wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: 'BOOKING_DELETED', bookingId: id }));
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'BOOKING_DELETED', bookingId: id }));
+      }
     });
 
     res.json({ message: `Booking ${id} deleted` });
