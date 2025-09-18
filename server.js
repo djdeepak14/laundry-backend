@@ -39,7 +39,7 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: [
     FRONTEND_URL.replace(/\/$/, ''),
-    'https://laundry-frontend-nine.vercel.app',  
+    'https://laundry-frontend-nine.vercel.app',
     'http://localhost:3000',
     'http://localhost:3001',
   ],
@@ -85,12 +85,15 @@ const Booking = mongoose.model('Booking', bookingSchema);
 // JWT Middleware
 // ---------------------
 const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
 
+  const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = decoded; // contains { id, username, role }
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Invalid token' });
@@ -141,7 +144,11 @@ app.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: 'Invalid username or password' });
 
-    const token = jwt.sign({ id: user._id, username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(
+      { id: user._id.toString(), username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '1h' }
+    );
 
     res.json({ token, userId: user._id, role: user.role });
   } catch (err) {
@@ -153,7 +160,7 @@ app.post('/login', async (req, res) => {
 // Bookings
 app.get('/bookings', verifyToken, async (req, res) => {
   try {
-    const bookings = await Booking.find({ userId: req.user.id || req.user._id });
+    const bookings = await Booking.find({ userId: req.user.id });
     res.json(bookings);
   } catch (err) {
     console.error('Get bookings error:', err.message);
@@ -171,12 +178,12 @@ app.post('/bookings', verifyToken, async (req, res) => {
     const existing = await Booking.findOne({
       slotId,
       date: new Date(date),
-      userId: req.user.id || req.user._id
+      userId: req.user.id,
     });
     if (existing) return res.status(400).json({ message: 'Slot already booked' });
 
     const booking = new Booking({
-      userId: req.user.id || req.user._id,
+      userId: req.user.id,
       slotId,
       machine,
       machineType,
@@ -204,7 +211,7 @@ app.delete('/bookings/:id', verifyToken, async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid booking ID' });
 
   try {
-    const booking = await Booking.findOneAndDelete({ _id: id, userId: req.user.id || req.user._id });
+    const booking = await Booking.findOneAndDelete({ _id: id, userId: req.user.id });
     if (!booking) return res.status(404).json({ message: 'Booking not found or not authorized' });
 
     wss.clients.forEach(client => {
