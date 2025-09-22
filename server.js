@@ -19,7 +19,7 @@ const SERVER_PORT = process.env.PORT || 5001;
 
 if (!MONGO_URI) throw new Error('MONGO_URI is not defined in .env');
 if (!JWT_SECRET) throw new Error('JWT_SECRET is not defined in .env');
-const FRONTEND_URL_FALLBACK = 'http://localhost:3000';
+const FRONTEND_URL_FALLBACK = 'https://laundry-frontend-nine.vercel.app';
 console.log(`[INIT] PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL || FRONTEND_URL_FALLBACK}, NODE_ENV=${NODE_ENV || 'development'}`);
 
 // ---------------------
@@ -36,14 +36,12 @@ app.use((req, res, next) => {
 });
 
 // CORS configuration
-const allowedOrigins = NODE_ENV === 'production'
-  ? [(FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, '')]
-  : [
-      (FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, ''),
-      'https://laundry-frontend-nine.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ];
+const allowedOrigins = [
+  (FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, ''),
+  'https://laundry-frontend-nine.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -58,7 +56,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-  optionsSuccessStatus: 204, // Ensure preflight requests return 204
+  optionsSuccessStatus: 204,
 }));
 
 // Explicitly handle CORS preflight requests
