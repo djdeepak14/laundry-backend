@@ -1,3 +1,4 @@
+
 require('dotenv').config({ quiet: true });
 const express = require('express');
 const cors = require('cors');
@@ -18,9 +19,8 @@ const SERVER_PORT = process.env.PORT || 5001;
 
 if (!MONGO_URI) throw new Error('MONGO_URI is not defined in .env');
 if (!JWT_SECRET) throw new Error('JWT_SECRET is not defined in .env');
-if (!FRONTEND_URL) throw new Error('FRONTEND_URL is not defined in .env');
-
-console.log(`[INIT] PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL}, NODE_ENV=${NODE_ENV}`);
+const FRONTEND_URL_FALLBACK = 'http://localhost:3000';
+console.log(`[INIT] PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL || FRONTEND_URL_FALLBACK}, NODE_ENV=${NODE_ENV || 'development'}`);
 
 // ---------------------
 // Middleware
@@ -31,33 +31,51 @@ app.use(express.json());
 // Log all requests
 app.use((req, res, next) => {
   console.log(`📡 ${new Date().toISOString()} - ${req.method} ${req.url} from ${req.headers.origin}`);
+  console.log(`Headers: ${JSON.stringify(req.headers)}`);
   next();
 });
 
 // CORS configuration
 const allowedOrigins = NODE_ENV === 'production'
-  ? [FRONTEND_URL.replace(/\/$/, '')]
+  ? [(FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, '')]
   : [
-      FRONTEND_URL.replace(/\/$/, ''),
+      (FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, ''),
       'https://laundry-frontend-nine.vercel.app',
       'http://localhost:3000',
       'http://localhost:3001',
     ];
 
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      console.log(`CORS: Allowing origin ${origin || 'none'}`);
+      callback(null, true);
+    } else {
+      console.error(`CORS: Rejected origin ${origin}`);
+      callback(new Error(`CORS: Origin ${origin} not allowed`));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
+  optionsSuccessStatus: 204, // Ensure preflight requests return 204
 }));
+
+// Explicitly handle CORS preflight requests
+app.options('*', cors());
 
 // Rate limiting for public endpoints
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+});
+const statusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // More permissive for status checks
 });
 app.use('/register', limiter);
 app.use('/login', limiter);
+app.use('/status', statusLimiter);
 
 // ---------------------
 // MongoDB Connection
@@ -102,7 +120,6 @@ const wss = new WebSocket.Server({ server, path: '/ws' });
 wss.on('connection', ws => {
   console.log('🔗 WebSocket client connected');
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Connected to WebSocket server' }));
-
   ws.on('message', message => {
     try {
       const data = JSON.parse(message);
@@ -111,7 +128,6 @@ wss.on('connection', ws => {
       ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid message format' }));
     }
   });
-
   ws.on('close', () => console.log('🔌 WebSocket client disconnected'));
   ws.on('error', err => console.error('❌ WebSocket error:', err.message));
 });
@@ -122,7 +138,6 @@ wss.on('connection', ws => {
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ message: 'Invalid token' });
-
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -143,6 +158,13 @@ const verifyAdmin = (req, res, next) => {
 // Routes
 // ---------------------
 app.get('/', (req, res) => res.send('🚀 Laundry backend is running!'));
+
+// Status endpoint for frontend health check
+app.get('/status', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Healthcheck route
 app.get('/healthcheck', (req, res) => res.json({ status: 'OK' }));
 
 // Register
@@ -150,9 +172,7 @@ app.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
-
     if (await User.findOne({ username })) return res.status(400).json({ message: 'User already exists' });
-
     const hashedPassword = await bcrypt.hash(password, 10);
     await new User({ username, password: hashedPassword }).save();
     res.json({ message: 'User registered successfully' });
@@ -167,10 +187,8 @@ app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
-
     const user = await User.findOne({ username });
     if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ message: 'Invalid username or password' });
-
     const token = jwt.sign({ id: user._id.toString(), username, role: user.role }, JWT_SECRET, { expiresIn: '1h' });
     res.json({ token, userId: user._id, role: user.role });
   } catch (err) {
@@ -196,13 +214,10 @@ app.post('/bookings', verifyToken, async (req, res) => {
     const { slotId, machine, machineType, dayName, date, timeSlot } = req.body;
     if (!slotId || !machine || !machineType || !dayName || !date || !timeSlot)
       return res.status(400).json({ message: 'All booking fields required' });
-
     const parsedDate = new Date(date);
     if (isNaN(parsedDate.getTime())) return res.status(400).json({ message: 'Invalid date format' });
-
     const existing = await Booking.findOne({ date: parsedDate, machine, timeSlot });
     if (existing) return res.status(400).json({ message: 'This slot is already booked' });
-
     const saved = await new Booking({
       userId: req.user.id,
       slotId,
@@ -212,14 +227,12 @@ app.post('/bookings', verifyToken, async (req, res) => {
       date: parsedDate,
       timeSlot,
     }).save();
-
     // Notify WebSocket clients
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'BOOKING_UPDATED', booking: saved }));
       }
     });
-
     res.json(saved);
   } catch (err) {
     console.error('Create booking error:', err.message);
@@ -231,20 +244,16 @@ app.post('/bookings', verifyToken, async (req, res) => {
 app.delete('/bookings/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid booking ID' });
-
   try {
     const booking = req.user.role === 'admin'
       ? await Booking.findByIdAndDelete(id)
       : await Booking.findOneAndDelete({ _id: id, userId: req.user.id });
-
     if (!booking) return res.status(404).json({ message: 'Booking not found or not authorized' });
-
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'BOOKING_DELETED', bookingId: id }));
       }
     });
-
     res.json({ message: `Booking ${id} deleted` });
   } catch (err) {
     console.error('Delete booking error:', err.message);
@@ -254,18 +263,31 @@ app.delete('/bookings/:id', verifyToken, async (req, res) => {
 
 // Admin routes
 app.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
-  try { res.json(await User.find().select('-password')); }
-  catch (err) { console.error('Admin get users error:', err.message); res.status(500).json({ message: 'Internal server error' }); }
+  try {
+    res.json(await User.find().select('-password'));
+  } catch (err) {
+    console.error('Admin get users error:', err.message);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 app.get('/admin/bookings', verifyToken, verifyAdmin, async (req, res) => {
-  try { res.json(await Booking.find().populate('userId', 'username')); }
-  catch (err) { console.error('Admin get bookings error:', err.message); res.status(500).json({ message: 'Internal server error' }); }
+  try {
+    res.json(await Booking.find().populate('userId', 'username'));
+  } catch (err) {
+    console.error('Admin get bookings error:', err.message);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 app.delete('/admin/users/:id', verifyToken, verifyAdmin, async (req, res) => {
-  try { await User.findByIdAndDelete(req.params.id); res.json({ message: `User ${req.params.id} deleted` }); }
-  catch (err) { console.error('Admin delete user error:', err.message); res.status(500).json({ message: 'Internal server error' }); }
+  try {
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ message: `User ${req.params.id} deleted` });
+  } catch (err) {
+    console.error('Admin delete user error:', err.message);
+    res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 // Global Error Handler
