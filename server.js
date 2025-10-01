@@ -19,68 +19,6 @@ connectDB().then(() => {
   console.log("MongoDB connection failed !!!", error)
 })
 
-// require('dotenv').config({ quiet: true });
-// const express = require('express');
-// const cors = require('cors');
-// const bcrypt = require('bcrypt');
-// const jwt = require('jsonwebtoken');
-// const mongoose = require('mongoose');
-// const helmet = require('helmet');
-// const rateLimit = require('express-rate-limit');
-// const WebSocket = require('ws');
-
-// const app = express();
-
-// // ---------------------
-// // Environment Variables
-// // ---------------------
-// const { MONGO_URI, JWT_SECRET, FRONTEND_URL, NODE_ENV } = process.env;
-// const SERVER_PORT = process.env.PORT || 5001;
-
-// if (!MONGO_URI) throw new Error('MONGO_URI is not defined in .env');
-// if (!JWT_SECRET) throw new Error('JWT_SECRET is not defined in .env');
-// const FRONTEND_URL_FALLBACK = 'https://laundry-frontend-nine.vercel.app';
-// console.log(`[INIT] PORT=${SERVER_PORT}, FRONTEND_URL=${FRONTEND_URL || FRONTEND_URL_FALLBACK}, NODE_ENV=${NODE_ENV || 'development'}`);
-
-// // ---------------------
-// // Middleware
-// // ---------------------
-// app.use(helmet());
-// app.use(express.json());
-
-// // Log all requests
-// app.use((req, res, next) => {
-//   console.log(`📡 ${new Date().toISOString()} - ${req.method} ${req.url} from ${req.headers.origin}`);
-//   console.log(`Headers: ${JSON.stringify(req.headers)}`);
-//   next();
-// });
-
-// // CORS configuration
-// const allowedOrigins = [
-//   (FRONTEND_URL || FRONTEND_URL_FALLBACK).replace(/\/$/, ''),
-//   'https://laundry-frontend-nine.vercel.app',
-//   'http://localhost:3000',
-//   'http://localhost:3001',
-// ];
-
-// app.use(cors({
-//   origin: (origin, callback) => {
-//     if (!origin || allowedOrigins.includes(origin)) {
-//       console.log(`CORS: Allowing origin ${origin || 'none'}`);
-//       callback(null, true);
-//     } else {
-//       console.error(`CORS: Rejected origin ${origin}`);
-//       callback(new Error(`CORS: Origin ${origin} not allowed`));
-//     }
-//   },
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization'],
-//   credentials: true,
-//   optionsSuccessStatus: 204,
-// }));
-
-// // Explicitly handle CORS preflight requests
-// app.options('*', cors());
 
 // // Rate limiting for public endpoints
 // const limiter = rateLimit({
@@ -95,39 +33,6 @@ connectDB().then(() => {
 // app.use('/login', limiter);
 // app.use('/status', statusLimiter);
 
-// // ---------------------
-// // MongoDB Connection
-// // ---------------------
-// mongoose.connect(MONGO_URI)
-//   .then(() => console.log('✅ MongoDB connected successfully'))
-//   .catch(err => {
-//     console.error('❌ MongoDB connection error:', err.message);
-//     process.exit(1);
-//   });
-
-// // ---------------------
-// // Schemas & Models
-// // ---------------------
-// const userSchema = new mongoose.Schema({
-//   username: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 30, match: /^[a-zA-Z0-9_]+$/ },
-//   password: { type: String, required: true, minlength: 6 },
-//   role: { type: String, enum: ['user', 'admin'], default: 'user' },
-// });
-// userSchema.index({ username: 1 });
-
-// const bookingSchema = new mongoose.Schema({
-//   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-//   slotId: { type: String, required: true },
-//   machine: { type: String, required: true },
-//   machineType: { type: String, required: true },
-//   dayName: { type: String, required: true },
-//   date: { type: Date, required: true },
-//   timeSlot: { type: String, required: true },
-// }, { timestamps: true });
-// bookingSchema.index({ date: 1, machine: 1, timeSlot: 1 });
-
-// const User = mongoose.model('User', userSchema);
-// const Booking = mongoose.model('Booking', bookingSchema);
 
 // // ---------------------
 // // WebSocket Server
