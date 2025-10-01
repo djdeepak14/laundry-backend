@@ -26,35 +26,6 @@ connectDB().then(() => {
 //   next();
 // };
 
-// // ---------------------
-// // Routes
-// // ---------------------
-// app.get('/', (req, res) => res.send('🚀 Laundry backend is running!'));
-
-// // Status endpoint for frontend health check
-// app.get('/status', (req, res) => {
-//   res.json({ status: 'OK', timestamp: new Date().toISOString() });
-// });
-
-// // Healthcheck route
-// app.get('/healthcheck', (req, res) => res.json({ status: 'OK' }));
-
-
-
-
-
-// // Get bookings
-// app.get('/bookings', verifyToken, async (req, res) => {
-//   try {
-//     const bookings = await Booking.find().populate('userId', 'username');
-//     res.json(bookings);
-//   } catch (err) {
-//     console.error('Get bookings error:', err.message);
-//     res.status(500).json({ message: 'Internal server error' });
-//   }
-// });
-
-
 
 // // Admin routes
 // app.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
