@@ -1,15 +1,19 @@
 import { Router } from "express";
-import { createMachine, deleteMachine, getMachinesByType } from "../controllers/machine.controller.js";
+import { createMachine, deleteMachine, machinesByType } from "../controllers/machine.controller.js";
 
 const router = Router()
 
-router.post('/', createMachine);                                
+router.route("/")
+    .post(createMachine);
 
-router.get('/:type', getMachinesByType);                     
+router.route("/:type")
+    .get(machinesByType);
 
-router.delete('/:id', deleteMachine); 
+router.route("/:id")
+    .delete(deleteMachine);
 
-router.delete('/:code', deleteMachine)
+router.route("/:code")
+    .delete(deleteMachine)
 
 
 export default router
