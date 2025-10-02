@@ -157,7 +157,7 @@ const UpcomingBookings = asyncHandler(async (req, res) => {
 
     const statusMatch = includeCancelled ? { $in: ["booked", "cancelled"] } : "booked";
 
-    const parseBool = (v, d=false) => (v === undefined ? d : String(v) === "true");
+    const parseBool = (v, d = false) => (v === undefined ? d : String(v) === "true");
 
     const pipeline = [
         {
@@ -201,7 +201,7 @@ const UpcomingBookings = asyncHandler(async (req, res) => {
         {
             $facet: {
                 items: [
-                    { $sort: { start: 1 } },              
+                    { $sort: { start: 1 } },
                     { $skip: (page - 1) * limit },
                     { $limit: limit }
                 ],
