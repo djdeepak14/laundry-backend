@@ -5,7 +5,6 @@ import User from "../models/user.model.js";
 
 
 const verifyJWT = asyncHandler(async (req, res, next) => {
-
     try {
         const token = req.cookies?.accessToken
         if (!token) {
@@ -25,6 +24,31 @@ const verifyJWT = asyncHandler(async (req, res, next) => {
     } catch (error) {
         throw new ApiError(401, error?.message || "Invalid access token")
     }
-});
+})
 
-export { verifyJWT }
+const verifyAdmin = asyncHandler(async(req, res)=>{
+    try {
+        const user = req.user
+        if (!user) {
+            throw new ApiError(401, "Unauthorized request")
+        }
+
+        const userDetails = await User.findById(user._id).select("-password -refreshToken");
+
+        if (!userDetails) {
+            throw new ApiError(401, "Unauthorized request")
+        }
+        const userRole = userDetails.role
+
+        if(userRole !== "admin"){
+            throw new ApiError(401, "Unauthorized request")
+        }
+
+        req.role = userRole
+        next()
+    } catch (error) {
+        throw new ApiError(401, error?.message || "not authorized")
+    }
+})
+
+export { verifyJWT, verifyAdmin }
