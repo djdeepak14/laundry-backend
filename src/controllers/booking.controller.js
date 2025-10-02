@@ -4,6 +4,7 @@ import Machine from "../models/machine.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import mongoose from "mongoose";
 
 const createBooking = asyncHandler(async (req, res) => {
     const { machineId, start } = req.body;
@@ -54,23 +55,173 @@ const createBooking = asyncHandler(async (req, res) => {
 });
 
 
-export const cancelBooking = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user?.id;
-  if (!userId) throw new ApiError(401, "unauthorized request");
+const cancelBooking = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    if (!userId) throw new ApiError(401, "unauthorized request");
 
-  const booking = await Booking.findById(id);
-  if (!booking) throw new ApiError(404, "Booking not found");
+    const booking = await Booking.findById(id);
+    if (!booking) throw new ApiError(404, "Booking not found");
 
-  if (booking.status !== "booked") {
-    return res.status(200).json(new ApiResponse(200, booking, "already not active"));
-  }
-  booking.status = "cancelled";
-  await booking.save();
+    if (booking.status !== "booked") {
+        return res.status(200).json(new ApiResponse(200, booking, "already not active"));
+    }
+    booking.status = "cancelled";
+    await booking.save();
 
-  return res.status(200).json(new ApiResponse(200, booking, "cancelled"));
+    return res.status(200).json(new ApiResponse(200, booking, "cancelled"));
 });
 
+const PastBookings = asyncHandler(async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) throw new ApiError(401, "unauthorized request");
 
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+    const includeCancelled = parseBool(req.query.includeCancelled, false);
+    const now = DateTime.utc().toJSDate();
 
-export { createBooking }
+    const statusMatch = includeCancelled ? { $in: ["completed", "cancelled"] } : "completed";
+    const parseBool = (v, d=false) => (v === undefined ? d : String(v) === "true");
+
+    const pipeline = [
+        {
+            $match: {
+                user: mongoose.Types.ObjectId(userId),
+                status: statusMatch,
+                end: { $lt: now },
+            }
+        },
+        {
+            $lookup: {
+                from: "machines",
+                localField: "machine",
+                foreignField: "_id",
+                pipeline: [
+                    { $project: { _id: 1, code: 1, type: 1, status: 1, isActive: 1, booking: 1 } }
+                ],
+                as: "machine"
+            }
+        },
+        { $unwind: { path: "$machine", preserveNullAndEmptyArrays: true } },
+        {
+            $project: {
+                _id: 1,
+                start: 1,
+                end: 1,
+                status: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                "machine._id": 1,
+                "machine.code": 1,
+                "machine.type": 1,
+                "machine.status": 1,
+                "machine.isActive": 1,
+                "machine.booking": 1,
+            }
+        },
+        {
+            $facet: {
+                items: [
+                    { $sort: { start: -1 } },
+                    { $skip: (page - 1) * limit },
+                    { $limit: limit }
+                ],
+                total: [
+                    { $count: "count" }
+                ]
+            }
+        },
+        {
+            $project: {
+                items: 1,
+                total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] }
+            }
+        }
+    ];
+
+    const [result] = await Booking.aggregate(pipeline);
+    return res.status(200).json(new ApiResponse(200, {
+        page, limit, total: result?.total ?? 0, items: result?.items ?? []
+    }, "past bookings"));
+});
+
+const UpcomingBookings = asyncHandler(async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) throw new ApiError(401, "unauthorized request");
+
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
+    const includeCancelled = parseBool(req.query.includeCancelled, false);
+    const now = DateTime.utc().toJSDate();
+
+    const statusMatch = includeCancelled ? { $in: ["booked", "cancelled"] } : "booked";
+
+    const parseBool = (v, d = false) => (v === undefined ? d : String(v) === "true");
+
+    const pipeline = [
+        {
+            $match: {
+                user: mongoose.Types.ObjectId(userId),
+                status: statusMatch,
+                start: { $gte: now },
+            }
+        },
+
+        {
+            $lookup: {
+                from: "machines",
+                localField: "machine",
+                foreignField: "_id",
+                pipeline: [
+                    { $project: { _id: 1, code: 1, type: 1, status: 1, isActive: 1, booking: 1 } }
+                ],
+                as: "machine"
+            }
+        },
+        { $unwind: { path: "$machine", preserveNullAndEmptyArrays: true } },
+
+        {
+            $project: {
+                _id: 1,
+                start: 1,
+                end: 1,
+                status: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                "machine._id": 1,
+                "machine.code": 1,
+                "machine.type": 1,
+                "machine.status": 1,
+                "machine.isActive": 1,
+                "machine.booking": 1,
+            }
+        },
+
+        {
+            $facet: {
+                items: [
+                    { $sort: { start: 1 } },
+                    { $skip: (page - 1) * limit },
+                    { $limit: limit }
+                ],
+                total: [
+                    { $count: "count" }
+                ]
+            }
+        },
+        {
+            $project: {
+                items: 1,
+                total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] }
+            }
+        }
+    ];
+
+    const [result] = await Booking.aggregate(pipeline);
+    return res.status(200).json(new ApiResponse(200, {
+        page, limit, total: result?.total ?? 0, items: result?.items ?? []
+    }, "upcoming bookings"));
+});
+
+export { createBooking, cancelBooking, PastBookings, UpcomingBookings }

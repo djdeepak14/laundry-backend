@@ -10,12 +10,18 @@ const createMachine = asyncHandler(async (req, res) => {
     if (!code || !type) {
         throw new ApiError(400, "both machine code and type are required")
     }
-    if (type !== "dryer" || type !== "washer") {
+    if (type !== "dryer" && type !== "washer") {
         throw new ApiError(400, "the machine must be dryer or washer");
     }
 
+    const machineExists = await Machine.findOne({code:code})
+
+    if(machineExists){
+        throw new ApiError(409, "machine with the code already exists")
+    }
+
     const createdMachine = await Machine.create({
-        code: code,
+        code: code.trim(),
         type: type
     })
 
@@ -24,8 +30,46 @@ const createMachine = asyncHandler(async (req, res) => {
     }
     return res
         .status(200)
-        .json(new ApiResponse(200, createdMachine, "machine created successfully"))
+        .json(new ApiResponse(201, createdMachine, "machine created successfully"))
 })
 
+const deleteMachine = asyncHandler(async (req, res) => {
+  const { id, code } = req.params; 
 
-export { createMachine }
+  if (!id && !code) {
+    throw new ApiError(400, "You must provide either machine id or code");
+  }
+
+  let machine;
+  if (id) {
+    machine = await Machine.findByIdAndDelete(id);
+  } else if (code) {
+    machine = await Machine.findOneAndDelete({ code });
+  }
+
+  if (!machine) {
+    throw new ApiError(404, "Machine not found");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, machine, "Machine deleted successfully"));
+});
+
+const getMachinesByType = asyncHandler(async (req, res) => {
+  const { type } = req.params; 
+
+  if (type !== "washer" && type !== "dryer") {
+    throw new ApiError(400, "Invalid type. Must be 'washer' or 'dryer'");
+  }
+
+  const machines = await Machine.find({ type, isActive: true }).lean();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, machines, `${type}s fetched successfully`));
+});
+
+
+
+export { createMachine, deleteMachine, getMachinesByType }
