@@ -21,7 +21,9 @@ app.use(cookieParser())
 
 //TODO impliment routes here
 import userRouter from "./src/routes/user.routes.js"
+import machineRouter from "./src/routes/machine.routes.js"
 
 app.use("api/v1/user", userRouter)
+app.use("api/v1/machine", machineRouter)
 
 export { app }
