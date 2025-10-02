@@ -20,12 +20,17 @@ app.use(express.static("public"))
 app.use(cookieParser())
 
 
-import userRouter from "./src/routes/user.routes.js"
-import machineRouter from "./src/routes/machine.routes.js"
-import bookingRouter from "./src/routes/booking.router.js"
+import userRouter from "./src/routes/user.routes.js";
+import machineRouter from "./src/routes/machine.routes.js";
+import bookingRouter from "./src/routes/booking.router.js"; 
 
-app.use("api/v1/user", userRouter)
-app.use("api/v1/machine", machineRouter)
-app.use("api/v1/booking", bookingRouter)
+
+app.use("/api/v1/user", userRouter);
+app.use("/api/v1/machine", machineRouter);
+app.use("/api/v1/booking", bookingRouter);
+
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "everything good" });
+});
 
 export { app }
