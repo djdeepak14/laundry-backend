@@ -19,11 +19,13 @@ app.use(express.static("public"))
 
 app.use(cookieParser())
 
-//TODO impliment routes here
+
 import userRouter from "./src/routes/user.routes.js"
 import machineRouter from "./src/routes/machine.routes.js"
+import bookingRouter from "./src/routes/booking.router.js"
 
 app.use("api/v1/user", userRouter)
 app.use("api/v1/machine", machineRouter)
+app.use("api/v1/booking", bookingRouter)
 
 export { app }
