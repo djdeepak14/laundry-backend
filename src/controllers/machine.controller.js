@@ -56,7 +56,7 @@ const deleteMachine = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, machine, "Machine deleted successfully"));
 });
 
-const getMachinesByType = asyncHandler(async (req, res) => {
+const machinesByType = asyncHandler(async (req, res) => {
   const { type } = req.params; 
 
   if (type !== "washer" && type !== "dryer") {
@@ -72,4 +72,4 @@ const getMachinesByType = asyncHandler(async (req, res) => {
 
 
 
-export { createMachine, deleteMachine, getMachinesByType }
+export { createMachine, deleteMachine, machinesByType }
