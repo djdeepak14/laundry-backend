@@ -14,7 +14,7 @@ const getActiveBookingsCount = async ({ userId, type, session }) => {
   const filter = {
     user: userId,
     status: "booked",
-    end: { $gt: DateTime.utc().toJSDate() }, // Only count active (future) bookings
+    end: { $gt: DateTime.utc().toJSDate() },
   };
 
   if (type) {
@@ -48,14 +48,12 @@ const createBooking = asyncHandler(async (req, res) => {
   try {
     let responseData = null;
     await session.withTransaction(async () => {
-      // Validate machine
       const machine = await Machine.findById(machineId).session(session);
       if (!machine) throw new ApiError(404, "Machine not found");
       if (!machine.isActive) throw new ApiError(409, "This machine is inactive.");
       if (machine.status === "out_of_service" || machine.booking?.enabled === false)
         throw new ApiError(409, "This machine cannot be booked now.");
 
-      // Check for overlapping bookings by user
       const userOverlap = await Booking.findOne({
         user: userId,
         status: "booked",
@@ -69,14 +67,13 @@ const createBooking = asyncHandler(async (req, res) => {
       if (userOverlap) {
         const conflictStart = DateTime.fromJSDate(userOverlap.start, { zone: "utc" })
           .setZone("Europe/Helsinki")
-          .toFormat("HH:mm");
+          .toFormat("yyyy-MM-dd HH:mm");
         const conflictEnd = DateTime.fromJSDate(userOverlap.end, { zone: "utc" })
           .setZone("Europe/Helsinki")
           .toFormat("HH:mm");
-        throw new ApiError(409, `You already have a booking from ${conflictStart} to ${conflictEnd} EET.`);
+        throw new ApiError(409, `You already have a booking on ${conflictStart} to ${conflictEnd} EET.`);
       }
 
-      // Check for overlapping bookings on the machine
       const machineOverlap = await Booking.findOne({
         machine: machineId,
         status: "booked",
@@ -88,10 +85,12 @@ const createBooking = asyncHandler(async (req, res) => {
       }).session(session);
 
       if (machineOverlap) {
-        throw new ApiError(409, "This machine is already booked for the selected time.");
+        const conflictStart = DateTime.fromJSDate(machineOverlap.start, { zone: "utc" })
+          .setZone("Europe/Helsinki")
+          .toFormat("yyyy-MM-dd HH:mm");
+        throw new ApiError(409, `This machine is already booked on ${conflictStart} EET.`);
       }
 
-      // Check 2-booking limit per machine type
       const washerCount = await getActiveBookingsCount({ userId, type: "washer", session });
       const dryerCount = await getActiveBookingsCount({ userId, type: "dryer", session });
 
@@ -102,7 +101,6 @@ const createBooking = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You have reached the maximum of 2 active dryer bookings.");
       }
 
-      // Create booking
       const booking = await Booking.create(
         [{
           machine: machine._id,
