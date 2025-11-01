@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -7,8 +8,9 @@ import machineRoutes from "./src/routes/machine.routes.js";
 import userRoutes from "./src/routes/user.routes.js";
 import adminRoutes from "./src/routes/admin.routes.js";
 
-// --- Load environment variables ---
-// If running locally, load from .env
+// --------------------
+// Load Environment Variables
+// --------------------
 if (process.env.NODE_ENV !== "production") {
   dotenv.config({ path: "./.env" });
   console.log("🧩 Loaded local .env configuration");
@@ -16,15 +18,20 @@ if (process.env.NODE_ENV !== "production") {
 
 const app = express();
 
-// --- Config ---
+// --------------------
+// Basic Configuration
+// --------------------
 const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || "development";
 const CORS_ORIGIN =
   process.env.CORS_ORIGIN || "http://localhost:3000";
 
-console.log("🌍 Environment:", process.env.NODE_ENV || "development");
-console.log("🔗 CORS_ORIGIN:", CORS_ORIGIN);
+console.log("🌍 Environment:", NODE_ENV);
+console.log("🔗 Allowed Origin:", CORS_ORIGIN);
 
-// --- CORS setup ---
+// --------------------
+// CORS Setup
+// --------------------
 app.use(
   cors({
     origin: [
@@ -37,26 +44,37 @@ app.use(
   })
 );
 
+// --------------------
+// Middleware
+// --------------------
 app.use(express.json());
 
-// --- Health check routes ---
+// --------------------
+// Health Check Routes
+// --------------------
 app.get("/", (req, res) =>
   res.send("🚀 Laundry Backend is running successfully!")
 );
+
 app.get("/status", (req, res) =>
   res.json({ status: "ok", message: "Server running" })
 );
+
 app.get("/api/v1/status", (req, res) =>
   res.json({ status: "ok", message: "API online" })
 );
 
-// --- Main API Routes ---
+// --------------------
+// Main API Routes
+// --------------------
 app.use("/api/v1/booking", bookingRoutes);
 app.use("/api/v1/machines", machineRoutes);
 app.use("/api/v1/user", userRoutes);
 app.use("/api/v1/admin", adminRoutes);
 
-// --- Global Error Handler ---
+// --------------------
+// Global Error Handler
+// --------------------
 app.use((err, req, res, next) => {
   console.error("Global error:", err.message);
   res.status(err.status || 500).json({
@@ -64,12 +82,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-// --- Connect DB + Start Server ---
+// --------------------
+// Start Server After DB Connect
+// --------------------
 connectDB()
   .then(() => {
-    app.listen(PORT, "0.0.0.0", () =>
-      console.log(`✅ Server running on port ${PORT}`)
-    );
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ MongoDB connected`);
+      console.log(`✅ Server running on port ${PORT}`);
+    });
   })
   .catch((error) => {
     console.error("❌ MongoDB connection failed:", error);
