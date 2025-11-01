@@ -1,21 +1,60 @@
-// booking.controller.js
+// src/controllers/booking.controller.js
 import { DateTime } from "luxon";
+import mongoose from "mongoose";
 import Booking from "../models/booking.model.js";
 import Machine from "../models/machine.model.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import mongoose from "mongoose";
 
-// Helper for parsing boolean query params
-const parseBool = (value, defaultValue = false) => {
-  if (value === undefined) return defaultValue;
-  return String(value).toLowerCase() === "true";
+const hourDiff = (a, b) => Math.max(0, Math.round((b - a) / 3600000));
+const extractIndex = (s = "") => {
+  const m = String(s).match(/(\d+)\s*$/);
+  return m ? m[1] : null;
 };
 
-// ✅ CREATE BOOKING
+const findBestDryer = async ({ afterStart, afterEnd, preferIndex, session }) => {
+  const base = {
+    type: "dryer",
+    isActive: true,
+    status: { $ne: "out_of_service" },
+  };
+
+  let dryers = [];
+  if (preferIndex) {
+    dryers = await Machine.find({
+      ...base,
+      $or: [
+        { code: new RegExp(`${preferIndex}$`) },
+        { name: new RegExp(`${preferIndex}$`) },
+      ],
+    }).session(session);
+  }
+  if (!dryers.length) dryers = await Machine.find(base).session(session);
+
+  for (const d of dryers) {
+    const overlap = await Booking.findOne({
+      machine: d._id,
+      status: "booked",
+      start: { $lt: afterEnd },
+      end: { $gt: afterStart },
+    }).session(session);
+    if (!overlap) return d;
+  }
+  return null;
+};
+
+const getWeeklyBookedHours = async ({ userId, weekStart, weekEnd, session }) => {
+  const bookings = await Booking.find({
+    user: userId,
+    status: "booked",
+    start: { $gte: weekStart, $lte: weekEnd },
+  }).session(session);
+
+  return bookings.reduce((acc, b) => acc + hourDiff(b.start, b.end), 0);
+};
+
 const createBooking = asyncHandler(async (req, res) => {
-  console.log("Create booking payload:", req.body);
   const { machineId, start } = req.body;
   const userId = req.user?._id;
 
@@ -23,71 +62,179 @@ const createBooking = asyncHandler(async (req, res) => {
   if (!machineId || !start)
     throw new ApiError(400, "Machine ID and start time are required");
 
-  const machine = await Machine.findById(machineId);
-  if (!machine) throw new ApiError(404, "Machine not found");
-
-  if (!machine.isActive)
-    throw new ApiError(409, "Machine is inactive");
-  if (machine.status === "out_of_service" || machine.booking?.enabled === false)
-    throw new ApiError(409, "Machine is not available for booking");
-
   const startUtc = DateTime.fromISO(start, { zone: "utc" });
-  if (!startUtc.isValid) throw new ApiError(400, "Invalid start ISO (UTC)");
-  if (startUtc.minute !== 0 || startUtc.second !== 0 || startUtc.millisecond !== 0)
-    throw new ApiError(400, "Start time must be exactly at HH:00");
-
+  if (!startUtc.isValid) throw new ApiError(400, "Invalid start time");
+  if (startUtc.minute !== 0)
+    throw new ApiError(400, "Start time must be exactly on the hour");
   const nowUtc = DateTime.utc();
   if (startUtc <= nowUtc)
     throw new ApiError(400, "Start time must be in the future");
 
   const endUtc = startUtc.plus({ hours: 1 });
+  const session = await mongoose.startSession();
 
-  // Check for overlapping booking
-  const overlap = await Booking.findOne({
-    machine: machineId,
-    status: "booked",
-    start: { $lt: endUtc.toJSDate() },
-    end: { $gt: startUtc.toJSDate() },
-  });
-  if (overlap) throw new ApiError(409, "Time slot already booked");
+  try {
+    let responseData = null;
+    await session.withTransaction(async () => {
+      // 1. User can't have active booking
+      const active = await Booking.findOne({
+        user: userId,
+        status: "booked",
+        end: { $gt: nowUtc.toJSDate() },
+      }).session(session);
+      if (active) {
+        throw new ApiError(
+          403,
+          "You already have an active reservation. Please wait until it finishes or cancel before booking again."
+        );
+      }
 
-  const booking = await Booking.create({
-    machine: machineId,
-    user: userId,
-    start: startUtc.toJSDate(),
-    end: endUtc.toJSDate(),
-    status: "booked",
-  });
+      // 2. Machine exists & is bookable
+      const machine = await Machine.findById(machineId).session(session);
+      if (!machine) throw new ApiError(404, "Machine not found");
+      if (!machine.isActive)
+        throw new ApiError(409, "This machine is inactive.");
+      if (machine.status === "out_of_service" || machine.booking?.enabled === false)
+        throw new ApiError(409, "This machine cannot be booked now.");
 
-  if (!booking) throw new ApiError(500, "Failed to create booking");
+      // 3. PREVENT OVERLAP – FULLY ROBUST
+      const overlap = await Booking.findOne({
+        machine: machineId,
+        status: "booked",
+        $or: [
+          { start: { $lt: endUtc.toJSDate(), $gte: startUtc.toJSDate() } },
+          { end: { $gt: startUtc.toJSDate(), $lte: endUtc.toJSDate() } },
+          { start: { $lte: startUtc.toJSDate() }, end: { $gte: endUtc.toJSDate() } },
+        ],
+      }).session(session);
 
-  // Update machine status automatically
-  machine.status = "booked";
-  await machine.save();
+      if (overlap) {
+        const conflictStart = DateTime.fromJSDate(overlap.start).toFormat("HH:mm");
+        const conflictEnd = DateTime.fromJSDate(overlap.end).toFormat("HH:mm");
+        throw new ApiError(
+          409,
+          `This machine is already booked from ${conflictStart} to ${conflictEnd} UTC.`
+        );
+      }
 
-  return res
-    .status(201)
-    .json(new ApiResponse(201, booking, "Booked successfully"));
+      // 4. Weekly 2-hour limit
+      const weekStart = startUtc.startOf("week").toJSDate();
+      const weekEnd = startUtc.endOf("week").toJSDate();
+      const totalHours = await getWeeklyBookedHours({
+        userId,
+        weekStart,
+        weekEnd,
+        session,
+      });
+      const nextWeekStart = DateTime.fromJSDate(weekStart)
+        .plus({ weeks: 1 })
+        .toFormat("dd LLL yyyy");
+
+      const hoursToAdd = machine.type === "washer" ? 2 : 1;
+      if (totalHours + hoursToAdd > 2) {
+        throw new ApiError(
+          403,
+          `You’ve reached your weekly 2-hour booking limit. You can book again after ${nextWeekStart}, or cancel an existing booking.`
+        );
+      }
+
+      // 5. Auto-dryer for washer
+      if (machine.type === "washer") {
+        const dryerStart = endUtc.toJSDate();
+        const dryerEnd = endUtc.plus({ hours: 1 }).toJSDate();
+        const preferIndex = extractIndex(machine.code || machine.name);
+        const dryer = await findBestDryer({
+          afterStart: dryerStart,
+          afterEnd: dryerEnd,
+          preferIndex,
+          session,
+        });
+        if (!dryer)
+          throw new ApiError(
+            409,
+            "No dryer available for the hour immediately after your washer booking."
+          );
+
+        const washerBooking = await Booking.create(
+          [
+            {
+              machine: machine._id,
+              user: userId,
+              start: startUtc.toJSDate(),
+              end: endUtc.toJSDate(),
+              status: "booked",
+            },
+          ],
+          { session }
+        );
+        const dryerBooking = await Booking.create(
+          [
+            {
+              machine: dryer._id,
+              user: userId,
+              start: dryerStart,
+              end: dryerEnd,
+              status: "booked",
+            },
+          ],
+          { session }
+        );
+
+        machine.status = "booked";
+        dryer.status = "booked";
+        await machine.save({ session });
+        await dryer.save({ session });
+
+        const [washerPop, dryerPop] = await Promise.all([
+          washerBooking[0].populate("machine", "code name type"),
+          dryerBooking[0].populate("machine", "code name type"),
+        ]);
+
+        responseData = { washer: washerPop, autoDryer: dryerPop };
+      } else {
+        const booking = await Booking.create(
+          [
+            {
+              machine: machine._id,
+              user: userId,
+              start: startUtc.toJSDate(),
+              end: endUtc.toJSDate(),
+              status: "booked",
+            },
+          ],
+          { session }
+        );
+        machine.status = "booked";
+        await machine.save({ session });
+        const populated = await booking[0].populate("machine", "code name type");
+        responseData = populated;
+      }
+    });
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, responseData, "Booked successfully"));
+  } catch (err) {
+    // HANDLE RACE CONDITION: MongoDB duplicate key error
+    if (err.code === 11000 || err.name === "MongoServerError") {
+      throw new ApiError(409, "This time slot was just booked by someone else. Please choose another.");
+    }
+    throw err;
+  } finally {
+    session.endSession();
+  }
 });
 
-// ✅ CANCEL BOOKING
+// === USER ROUTES ===
 const cancelBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user?._id;
-  if (!userId) throw new ApiError(401, "Unauthorized request");
+  if (!userId) throw new ApiError(401, "Unauthorized");
 
   const booking = await Booking.findById(id);
   if (!booking) throw new ApiError(404, "Booking not found");
-
-  if (booking.user.toString() !== userId.toString()) {
+  if (booking.user.toString() !== userId.toString())
     throw new ApiError(403, "Not authorized to cancel this booking");
-  }
-
-  if (booking.status !== "booked") {
-    return res
-      .status(200)
-      .json(new ApiResponse(200, booking, "Booking already not active"));
-  }
 
   booking.status = "cancelled";
   await booking.save();
@@ -100,201 +247,88 @@ const cancelBooking = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, booking, "Booking cancelled"));
+    .json(new ApiResponse(200, booking, "Booking cancelled successfully."));
 });
 
-// ✅ GET ALL BOOKINGS (for frontend sync)
-const getAllBookings = asyncHandler(async (req, res) => {
+const PastBookings = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
+  if (!userId) throw new ApiError(401, "Unauthorized");
+  const now = DateTime.utc().toJSDate();
 
-  if (!userId) throw new ApiError(401, "Unauthorized request");
-
-  // Optional: show all active bookings, or just user’s
-  const showAll = parseBool(req.query.all, false);
-
-  const query = showAll
-    ? { status: { $in: ["booked", "in_progress"] } }
-    : { user: new mongoose.Types.ObjectId(userId) };
-
-  const bookings = await Booking.find(query)
-    .populate("machine", "code type status isActive booking")
-    .sort({ start: 1 });
+  const bookings = await Booking.find({
+    user: userId,
+    status: { $in: ["completed", "cancelled"] },
+    end: { $lt: now },
+  }).populate("machine", "code name type");
 
   return res
     .status(200)
-    .json(new ApiResponse(200, bookings, "Bookings retrieved successfully"));
+    .json(new ApiResponse(200, bookings, "Past bookings retrieved"));
 });
 
-// ✅ PAST BOOKINGS
-const PastBookings = asyncHandler(async (req, res) => {
-  const userId = req.user?._id;
-  if (!userId) throw new ApiError(401, "Unauthorized request");
-
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
-  const includeCancelled = parseBool(req.query.includeCancelled, false);
-  const now = DateTime.utc().toJSDate();
-
-  const statusMatch = includeCancelled
-    ? { $in: ["completed", "cancelled"] }
-    : "completed";
-
-  const pipeline = [
-    {
-      $match: {
-        user: new mongoose.Types.ObjectId(userId),
-        status: statusMatch,
-        end: { $lt: now },
-      },
-    },
-    {
-      $lookup: {
-        from: "machines",
-        localField: "machine",
-        foreignField: "_id",
-        pipeline: [
-          {
-            $project: {
-              _id: 1,
-              code: 1,
-              type: 1,
-              status: 1,
-              isActive: 1,
-              booking: 1,
-            },
-          },
-        ],
-        as: "machine",
-      },
-    },
-    { $unwind: { path: "$machine", preserveNullAndEmptyArrays: true } },
-    {
-      $project: {
-        _id: 1,
-        start: 1,
-        end: 1,
-        status: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        "machine._id": 1,
-        "machine.code": 1,
-        "machine.type": 1,
-        "machine.status": 1,
-        "machine.isActive": 1,
-        "machine.booking": 1,
-      },
-    },
-    {
-      $facet: {
-        items: [{ $sort: { start: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit }],
-        total: [{ $count: "count" }],
-      },
-    },
-    {
-      $project: {
-        items: 1,
-        total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] },
-      },
-    },
-  ];
-
-  const [result] = await Booking.aggregate(pipeline);
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { page, limit, total: result?.total ?? 0, items: result?.items ?? [] },
-      "Past bookings retrieved"
-    )
-  );
-});
-
-// ✅ UPCOMING BOOKINGS
 const UpcomingBookings = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
-  if (!userId) throw new ApiError(401, "Unauthorized request");
-
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 10));
-  const includeCancelled = parseBool(req.query.includeCancelled, false);
+  if (!userId) throw new ApiError(401, "Unauthorized");
   const now = DateTime.utc().toJSDate();
 
-  const statusMatch = includeCancelled
-    ? { $in: ["booked", "cancelled"] }
-    : "booked";
+  const bookings = await Booking.find({
+    user: userId,
+    status: "booked",
+    start: { $gte: now },
+  }).populate("machine", "code name type");
 
-  const pipeline = [
-    {
-      $match: {
-        user: new mongoose.Types.ObjectId(userId),
-        status: statusMatch,
-        start: { $gte: now },
-      },
-    },
-    {
-      $lookup: {
-        from: "machines",
-        localField: "machine",
-        foreignField: "_id",
-        pipeline: [
-          {
-            $project: {
-              _id: 1,
-              code: 1,
-              type: 1,
-              status: 1,
-              isActive: 1,
-              booking: 1,
-            },
-          },
-        ],
-        as: "machine",
-      },
-    },
-    { $unwind: { path: "$machine", preserveNullAndEmptyArrays: true } },
-    {
-      $project: {
-        _id: 1,
-        start: 1,
-        end: 1,
-        status: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        "machine._id": 1,
-        "machine.code": 1,
-        "machine.type": 1,
-        "machine.status": 1,
-        "machine.isActive": 1,
-        "machine.booking": 1,
-      },
-    },
-    {
-      $facet: {
-        items: [{ $sort: { start: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }],
-        total: [{ $count: "count" }],
-      },
-    },
-    {
-      $project: {
-        items: 1,
-        total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] },
-      },
-    },
-  ];
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "Upcoming bookings retrieved"));
+});
 
-  const [result] = await Booking.aggregate(pipeline);
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { page, limit, total: result?.total ?? 0, items: result?.items ?? [] },
-      "Upcoming bookings retrieved"
-    )
-  );
+const getAllBookings = asyncHandler(async (req, res) => {
+  const bookings = await Booking.find()
+    .populate("user", "name email")
+    .populate("machine", "code name type status");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "All bookings retrieved successfully"));
+});
+
+// === ADMIN ROUTES ===
+const adminGetAllBookings = asyncHandler(async (req, res) => {
+  const bookings = await Booking.find({})
+    .populate("user", "name email role")
+    .populate("machine", "code name type status isActive")
+    .sort({ start: -1 });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "Admin: All bookings retrieved"));
+});
+
+const adminCancelAnyBooking = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const booking = await Booking.findById(id);
+  if (!booking) throw new ApiError(404, "Booking not found");
+
+  booking.status = "cancelled";
+  await booking.save();
+
+  const machine = await Machine.findById(booking.machine);
+  if (machine) {
+    machine.status = "available";
+    await machine.save();
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, booking, "Booking cancelled by admin"));
 });
 
 export {
   createBooking,
   cancelBooking,
-  getAllBookings,
   PastBookings,
   UpcomingBookings,
+  getAllBookings,
+  adminGetAllBookings,
+  adminCancelAnyBooking,
 };

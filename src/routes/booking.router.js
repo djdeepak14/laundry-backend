@@ -6,59 +6,22 @@ import {
   PastBookings,
   UpcomingBookings,
   getAllBookings,
+  adminGetAllBookings,
+  adminCancelAnyBooking,
 } from "../controllers/booking.controller.js";
-import { verifyJWT } from "../controllers/auth.controller.js";
+import { verifyJWT, verifyAdmin } from "../controllers/auth.controller.js";
 
 const router = Router();
 
-// ✅ Get all bookings (for logged-in user or all active if ?all=true)
-router.get("/", verifyJWT, async (req, res, next) => {
-  try {
-    await getAllBookings(req, res, next);
-  } catch (err) {
-    console.error("Failed to fetch bookings:", err.message);
-    res.status(500).json({ message: "Failed to fetch bookings" });
-  }
-});
+// === USER ROUTES ===
+router.get("/", verifyJWT, getAllBookings);
+router.post("/", verifyJWT, createBooking);
+router.delete("/:id", verifyJWT, cancelBooking);
+router.get("/past", verifyJWT, PastBookings);
+router.get("/upcoming", verifyJWT, UpcomingBookings);
 
-// ✅ Create a new booking
-router.post("/", verifyJWT, async (req, res, next) => {
-  try {
-    await createBooking(req, res, next);
-  } catch (err) {
-    console.error("Create booking error:", err.message);
-    res.status(500).json({ message: "Failed to create booking" });
-  }
-});
-
-// ✅ Cancel a booking
-router.delete("/:id", verifyJWT, async (req, res, next) => {
-  try {
-    await cancelBooking(req, res, next);
-  } catch (err) {
-    console.error("Cancel booking error:", err.message);
-    res.status(500).json({ message: "Failed to cancel booking" });
-  }
-});
-
-// ✅ Past bookings
-router.get("/past", verifyJWT, async (req, res, next) => {
-  try {
-    await PastBookings(req, res, next);
-  } catch (err) {
-    console.error("Past bookings error:", err.message);
-    res.status(500).json({ message: "Failed to fetch past bookings" });
-  }
-});
-
-// ✅ Upcoming bookings
-router.get("/upcoming", verifyJWT, async (req, res, next) => {
-  try {
-    await UpcomingBookings(req, res, next);
-  } catch (err) {
-    console.error("Upcoming bookings error:", err.message);
-    res.status(500).json({ message: "Failed to fetch upcoming bookings" });
-  }
-});
+// === ADMIN ROUTES ===
+router.get("/admin/all", verifyJWT, verifyAdmin, adminGetAllBookings);
+router.delete("/admin/cancel/:id", verifyJWT, verifyAdmin, adminCancelAnyBooking);
 
 export default router;

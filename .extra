@@ -1,0 +1,26 @@
+// ADMIN LOGIN (one time)
+fetch("http://localhost:5000/api/v1/user/login", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  credentials: "include",
+  body: JSON.stringify({
+    email: "deepak.khanal@seamk.fi",
+    password: "111111"
+  })
+})
+.then(r => r.json())
+.then(d => {
+  const token = d?.data?.accessToken;
+  const role = d?.data?.user?.role;
+  const userId = d?.data?.user?._id;
+  
+  if (token && role === "admin") {
+    localStorage.setItem("token", token);
+    localStorage.setItem("role", "admin");
+    localStorage.setItem("userId", userId);
+    alert("Admin logged in! Going to /admin...");
+    window.location.href = "/admin";
+  } else {
+    alert("Login failed or not admin");
+  }
+});
