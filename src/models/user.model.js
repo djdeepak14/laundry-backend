@@ -4,15 +4,18 @@ import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  username: { type: String, required: true, unique: true, trim: true },
-  email: { type: String, required: true, unique: true, index: true },
-  password: { type: String, required: [true, "Password required"] },
-  role: { type: String, enum: ["user", "admin"], default: "user" },
-  isApproved: { type: Boolean, default: false },
-  refreshToken: { type: String },
-});
+const userSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    username: { type: String, required: true, unique: true, trim: true },
+    email: { type: String, required: true, unique: true, index: true },
+    password: { type: String, required: [true, "Password required"] },
+    role: { type: String, enum: ["user", "admin"], default: "user" },
+    isApproved: { type: Boolean, default: false },
+    refreshToken: { type: String },
+  },
+  { timestamps: true } // ✅ This line adds createdAt and updatedAt automatically
+);
 
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
