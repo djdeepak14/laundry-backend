@@ -67,9 +67,13 @@ const createBooking = asyncHandler(async (req, res) => {
       }).session(session);
 
       if (userOverlap) {
-        const conflictStart = DateTime.fromJSDate(userOverlap.start).toFormat("HH:mm");
-        const conflictEnd = DateTime.fromJSDate(userOverlap.end).toFormat("HH:mm");
-        throw new ApiError(409, `You already have a booking from ${conflictStart} to ${conflictEnd} UTC.`);
+        const conflictStart = DateTime.fromJSDate(userOverlap.start, { zone: "utc" })
+          .setZone("Europe/Helsinki")
+          .toFormat("HH:mm");
+        const conflictEnd = DateTime.fromJSDate(userOverlap.end, { zone: "utc" })
+          .setZone("Europe/Helsinki")
+          .toFormat("HH:mm");
+        throw new ApiError(409, `You already have a booking from ${conflictStart} to ${conflictEnd} EET.`);
       }
 
       // Check for overlapping bookings on the machine
