@@ -16,7 +16,8 @@
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.7.2",
     "mongodb": "^6.19.0",
-    "mongoose": "^8.19.2"
+    "mongoose": "^8.19.2",
+    "node-cron": "^4.2.1"
   },
   "engines": {
     "node": "22.16.0"

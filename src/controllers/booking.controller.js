@@ -1,3 +1,4 @@
+// src/controllers/booking.controller.js
 import { DateTime } from "luxon";
 import mongoose from "mongoose";
 import Booking from "../models/booking.model.js";
@@ -8,6 +9,32 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 
 // Helper to calculate hours between start and end times
 const hourDiff = (a, b) => Math.max(0, Math.round((b - a) / 3600000));
+
+// ✅ NEW: Auto-complete expired bookings + release machines
+const autoUpdateExpiredBookings = async () => {
+  const now = DateTime.utc().toJSDate();
+
+  // Find bookings that are still marked "booked" but already ended
+  const expiredBookings = await Booking.find({
+    status: "booked",
+    end: { $lte: now },
+  });
+
+  for (const b of expiredBookings) {
+    b.status = "completed";
+    await b.save();
+
+    const machine = await Machine.findById(b.machine);
+    if (machine) {
+      machine.status = "available";
+      await machine.save();
+    }
+  }
+
+  if (expiredBookings.length > 0) {
+    console.log(`✅ Auto-completed ${expiredBookings.length} expired bookings`);
+  }
+};
 
 // Helper to count active user bookings by machine type
 const getActiveBookingsCount = async ({ userId, type, session }) => {
@@ -25,7 +52,7 @@ const getActiveBookingsCount = async ({ userId, type, session }) => {
   return Booking.countDocuments(filter).session(session);
 };
 
-// Create a new booking
+// ================= CREATE BOOKING =================
 const createBooking = asyncHandler(async (req, res) => {
   const { machineId, start } = req.body;
   const userId = req.user?._id;
@@ -131,7 +158,7 @@ const createBooking = asyncHandler(async (req, res) => {
   }
 });
 
-// Cancel a booking (user)
+// ================= USER ROUTES =================
 const cancelBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user?._id;
@@ -165,8 +192,9 @@ const cancelBooking = asyncHandler(async (req, res) => {
   }
 });
 
-// Get past bookings for a user
+// ================= BOOKINGS FETCH =================
 const PastBookings = asyncHandler(async (req, res) => {
+  await autoUpdateExpiredBookings(); // ✅ Update expired before fetching
   const userId = req.user?._id;
   if (!userId) throw new ApiError(401, "Unauthorized");
   const now = DateTime.utc().toJSDate();
@@ -180,8 +208,8 @@ const PastBookings = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, bookings, "Past bookings retrieved"));
 });
 
-// Get upcoming bookings for a user
 const UpcomingBookings = asyncHandler(async (req, res) => {
+  await autoUpdateExpiredBookings(); // ✅ Update expired before fetching
   const userId = req.user?._id;
   if (!userId) throw new ApiError(401, "Unauthorized");
   const now = DateTime.utc().toJSDate();
@@ -195,16 +223,17 @@ const UpcomingBookings = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, bookings, "Upcoming bookings retrieved"));
 });
 
-// Get all bookings (user)
+// ================= ADMIN ROUTES =================
 const getAllBookings = asyncHandler(async (req, res) => {
+  await autoUpdateExpiredBookings(); // ✅ Auto-clean before fetching
   const bookings = await Booking.find()
     .populate("user", "name email")
     .populate("machine", "code name type status");
   return res.status(200).json(new ApiResponse(200, bookings, "All bookings retrieved successfully"));
 });
 
-// Get all bookings (admin)
 const adminGetAllBookings = asyncHandler(async (req, res) => {
+  await autoUpdateExpiredBookings(); // ✅ Auto-clean before fetching
   const bookings = await Booking.find({})
     .populate("user", "name email role")
     .populate("machine", "code name type status isActive")
@@ -213,7 +242,6 @@ const adminGetAllBookings = asyncHandler(async (req, res) => {
   return res.status(200).json(new ApiResponse(200, bookings, "Admin: All bookings retrieved"));
 });
 
-// Cancel any booking (admin)
 const adminCancelAnyBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const session = await mongoose.startSession();
