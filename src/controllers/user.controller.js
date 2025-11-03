@@ -19,7 +19,7 @@ const generateAccessAndRefreshToken = async (userId) => {
 
     return { accessToken, refreshToken };
   } catch (error) {
-    console.error("Token generation error:", error);
+    console.error("❌ Token generation error:", error);
     throw new ApiError(500, "Failed to generate tokens");
   }
 };
@@ -123,7 +123,6 @@ const loginUser = asyncHandler(async (req, res) => {
     role: loggedInUser.role,
   });
 
-  // ✅ Response format consistent with frontend expectations
   return res
     .status(200)
     .cookie("accessToken", accessToken, options)
@@ -133,7 +132,7 @@ const loginUser = asyncHandler(async (req, res) => {
         200,
         {
           user: loggedInUser,
-          role: loggedInUser.role, // 👈 This fixes your "undefined" issue
+          role: loggedInUser.role,
           userId: loggedInUser._id,
           accessToken,
           refreshToken,
@@ -184,6 +183,50 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 });
 
 /**
+ * ⚖️ GDPR - Request Account Deletion
+ * Marks the user's account for deletion (admin will review and delete later)
+ */
+const requestAccountDeletion = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const user = await User.findById(userId);
+
+  if (!user) throw new ApiError(404, "User not found");
+
+  // Ensure field names match your DB and admin panel
+  if (user.deletionRequested) {
+    throw new ApiError(
+      400,
+      "You have already requested account deletion. Please wait for admin approval."
+    );
+  }
+
+  // ✅ Correct field naming (used by AdminDashboard)
+  user.deletionRequested = true;
+  user.deletionRequestedAt = new Date();
+  await user.save({ validateBeforeSave: false });
+
+  console.log(`🧾 User requested account deletion: ${user.email}`);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        userId: user._id,
+        email: user.email,
+        requestedAt: user.deletionRequestedAt,
+      },
+      "Your account deletion request has been submitted to the admin."
+    )
+  );
+});
+
+/**
  * ✅ Exports
  */
-export { registerUser, loginUser, logoutUser, getCurrentUser };
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getCurrentUser,
+  requestAccountDeletion,
+};

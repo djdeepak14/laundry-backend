@@ -1,10 +1,10 @@
-// src/routes/user.routes.js
 import { Router } from "express";
 import {
   registerUser,
   loginUser,
   logoutUser,
   getCurrentUser,
+  requestAccountDeletion, // ✅ New Controller Function
 } from "../controllers/user.controller.js";
 import { verifyJWT } from "../controllers/auth.controller.js";
 
@@ -21,5 +21,11 @@ router.post("/login", loginUser);       // User login
  */
 router.post("/logout", verifyJWT, logoutUser); // Logout only if logged in
 router.get("/info", verifyJWT, getCurrentUser); // Get logged-in user info
+
+/**
+ * ⚖️ GDPR - Account Deletion Request
+ * Users can request account deletion, handled by admins later.
+ */
+router.post("/request-deletion", verifyJWT, requestAccountDeletion);
 
 export default router;

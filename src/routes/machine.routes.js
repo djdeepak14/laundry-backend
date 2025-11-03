@@ -1,20 +1,41 @@
 // src/routes/machine.routes.js
 import { Router } from "express";
 import {
-  createMachine,
-  deleteMachine,
-  machinesByType,
   getAllMachines,
+  createMachine,
+  updateMachineStatus,
+  deleteMachine,
 } from "../controllers/machine.controller.js";
-import { verifyJWT, verifyAdmin } from "../controllers/auth.controller.js";
+import { verifyJWT, isAdmin } from "../controllers/auth.controller.js"; // ✅ Fixed import
 
 const router = Router();
 
-router.get("/type/:type", machinesByType);
-router.get("/", getAllMachines);
+/**
+ * ============================
+ * 👤 USER ROUTES
+ * ============================
+ */
+router.get("/", verifyJWT, getAllMachines);
 
-router.post("/", verifyJWT, verifyAdmin, createMachine);
-router.delete("/id/:id", verifyJWT, verifyAdmin, deleteMachine);
-router.delete("/code/:code", verifyJWT, verifyAdmin, deleteMachine);
+/**
+ * ============================
+ * 🧾 ADMIN ROUTES
+ * ============================
+ */
+router.post("/", verifyJWT, isAdmin, createMachine);
+router.patch("/:id", verifyJWT, isAdmin, updateMachineStatus);
+router.delete("/:id", verifyJWT, isAdmin, deleteMachine);
+
+/**
+ * ============================
+ * 💡 HEALTH CHECK
+ * ============================
+ */
+router.get("/status", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "✅ Machine routes working properly",
+  });
+});
 
 export default router;

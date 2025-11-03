@@ -4,16 +4,28 @@ import { verifyJWT, verifyAdmin } from "../controllers/auth.controller.js";
 
 const router = Router();
 
-// 🔐 All admin routes require authentication and admin role
+// Middleware: protect all admin routes
 router.use(verifyJWT, verifyAdmin);
 
-// ✅ GET all users
+/**
+ * @route   GET /api/v1/admin/users
+ * @desc    Get all users (includes deletion requests)
+ * @access  Admin
+ */
 router.get("/users", getAllUsers);
 
-// ✅ Approve a user by ID
+/**
+ * @route   PATCH /api/v1/admin/users/:id/approve
+ * @desc    Approve a user registration
+ * @access  Admin
+ */
 router.patch("/users/:id/approve", approveUser);
 
-// ✅ Delete a user by ID
+/**
+ * @route   DELETE /api/v1/admin/users/:id
+ * @desc    Permanently delete a user (used to approve GDPR deletion)
+ * @access  Admin
+ */
 router.delete("/users/:id", deleteUser);
 
 export default router;
