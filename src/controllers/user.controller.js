@@ -31,6 +31,7 @@ const registerUser = asyncHandler(async (req, res) => {
   console.log("🟢 Register payload:", req.body);
   const { name, email, password, confirmPassword } = req.body;
 
+  // 🔍 Basic input validation
   if (!name || !email || !password || !confirmPassword) {
     throw new ApiError(400, "All fields are required");
   }
@@ -49,17 +50,46 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "User with this email already exists");
   }
 
-  const user = await User.create({
-    name,
-    username: name,
-    password,
-    email,
-  });
+  // 🔒 Strong password validation (GDPR)
+  const passwordRegex =
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(password)) {
+    throw new ApiError(
+      400,
+      "Password must be at least 8 characters long and include uppercase, lowercase, number, and special character."
+    );
+  }
+
+  // 🧩 Try to create user safely
+  let user;
+  try {
+    user = await User.create({
+      name,
+      username: name,
+      password,
+      email,
+    });
+  } catch (err) {
+    // Mongoose validation error
+    if (err.name === "ValidationError") {
+      const message = Object.values(err.errors)
+        .map((e) => e.message)
+        .join(", ");
+      throw new ApiError(400, message);
+    }
+    // Duplicate key error (email/username already exists)
+    if (err.code === 11000) {
+      throw new ApiError(400, "Email or username already exists");
+    }
+
+    console.error("❌ Registration error:", err);
+    throw new ApiError(500, "Failed to register user");
+  }
 
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id);
   const createdUser = await User.findById(user._id).select("-password -refreshToken");
 
-  const options = {
+  const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
   };
@@ -68,8 +98,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(
       new ApiResponse(
         201,
@@ -93,7 +123,7 @@ const loginUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    throw new ApiError(400, "Both fields are required");
+    throw new ApiError(400, "Both email and password are required");
   }
 
   const user = await User.findOne({ email });
@@ -113,7 +143,7 @@ const loginUser = asyncHandler(async (req, res) => {
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id);
   const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
 
-  const options = {
+  const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
   };
@@ -125,8 +155,8 @@ const loginUser = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie("accessToken", accessToken, cookieOptions)
+    .cookie("refreshToken", refreshToken, cookieOptions)
     .json(
       new ApiResponse(
         200,
@@ -146,13 +176,17 @@ const loginUser = asyncHandler(async (req, res) => {
  * ✅ Logout User
  */
 const logoutUser = asyncHandler(async (req, res) => {
+  if (!req.user?._id) {
+    throw new ApiError(401, "Unauthorized access");
+  }
+
   await User.findByIdAndUpdate(
     req.user._id,
     { $unset: { refreshToken: 1 } },
     { new: true }
   );
 
-  const options = {
+  const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
   };
@@ -161,8 +195,8 @@ const logoutUser = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .clearCookie("accessToken", options)
-    .clearCookie("refreshToken", options)
+    .clearCookie("accessToken", cookieOptions)
+    .clearCookie("refreshToken", cookieOptions)
     .json(new ApiResponse(200, {}, "User logged out successfully"));
 });
 
@@ -232,7 +266,7 @@ const toggleUserRole = asyncHandler(async (req, res) => {
 
   const newRole = user.role === "admin" ? "user" : "admin";
 
-  // ✅ Directly update only the role — bypass password validation and hooks
+  // ✅ Update only the role field, bypassing validations & hooks
   const updatedUser = await User.findByIdAndUpdate(
     userId,
     { $set: { role: newRole } },
