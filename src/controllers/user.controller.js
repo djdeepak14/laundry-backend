@@ -222,20 +222,34 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
  */
 const toggleUserRole = asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  const user = await User.findById(userId);
 
+  const user = await User.findById(userId);
   if (!user) throw new ApiError(404, "User not found");
+
   if (user._id.toString() === req.user._id.toString()) {
     throw new ApiError(403, "Cannot change your own role");
   }
 
-  user.role = user.role === "admin" ? "user" : "admin";
-  await user.save({ validateBeforeSave: false }); // ✅ Skip full validation
+  const newRole = user.role === "admin" ? "user" : "admin";
 
-  console.log(`🔄 User role toggled: ${user.email} → ${user.role}`);
+  // ✅ Directly update only the role — bypass password validation and hooks
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { $set: { role: newRole } },
+    { new: true, runValidators: false }
+  );
+
+  console.log(`🔄 User role toggled: ${user.email} → ${updatedUser.role}`);
+
   return res
     .status(200)
-    .json(new ApiResponse(200, { role: user.role }, "User role updated successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        { role: updatedUser.role },
+        "User role updated successfully"
+      )
+    );
 });
 
 /**
