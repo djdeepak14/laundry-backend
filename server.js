@@ -7,40 +7,66 @@ import Booking from "./src/models/booking.model.js";
 import Machine from "./src/models/machine.model.js";
 import { connectDB } from "./src/db/index.js";
 
+// Import all route files
 import bookingRoutes from "./src/routes/booking.router.js";
 import machineRoutes from "./src/routes/machine.routes.js";
 import userRoutes from "./src/routes/user.routes.js";
 import adminRoutes from "./src/routes/admin.routes.js";
 
+// ✅ Load environment variables
 dotenv.config({ path: "./.env" });
 
+// ✅ Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 
+// ✅ Define allowed origins
+const allowedOrigins = [
+  CORS_ORIGIN,
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://laundry-frontend-nine.vercel.app",
+  "https://laundry-frontend-nine.vercel.app/", // handle trailing slash
+];
+
+// ✅ CORS middleware (with preflight)
 app.use(
   cors({
-    origin: [
-      CORS_ORIGIN,
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://laundry-frontend-nine.vercel.app",
-    ],
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`🚫 Blocked CORS request from origin: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
+// ✅ Ensure preflight OPTIONS requests are handled
+app.options("*", cors());
+
+// ✅ JSON body parser
 app.use(express.json());
 
-// ✅ Health Check
+// ✅ Health check routes
 app.get("/", (req, res) => {
   res.send("🚀 Laundry Backend is running successfully!");
 });
 
-app.get("/status", (_, res) => res.json({ status: "ok", message: "Server running" }));
-app.get("/api/v1/status", (_, res) => res.json({ status: "ok", message: "API online" }));
+app.get("/status", (_, res) =>
+  res.json({ status: "ok", message: "Server running" })
+);
 
-// ✅ Main API Routes
+app.get("/api/v1/status", (_, res) =>
+  res.json({ status: "ok", message: "API online" })
+);
+
+// ✅ API Routes
 app.use("/api/v1/booking", bookingRoutes);
 app.use("/api/v1/machines", machineRoutes);
 app.use("/api/v1/user", userRoutes);
@@ -52,11 +78,11 @@ cron.schedule("*/10 * * * *", async () => {
     const now = DateTime.utc().toJSDate();
     const expired = await Booking.find({ status: "booked", end: { $lte: now } });
 
-    for (const b of expired) {
-      b.status = "completed";
-      await b.save();
+    for (const booking of expired) {
+      booking.status = "completed";
+      await booking.save();
 
-      const machine = await Machine.findById(b.machine);
+      const machine = await Machine.findById(booking.machine);
       if (machine) {
         machine.status = "available";
         await machine.save();
@@ -71,7 +97,7 @@ cron.schedule("*/10 * * * *", async () => {
   }
 });
 
-// ✅ 404 Handler
+// ✅ 404 route handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -80,7 +106,7 @@ app.use((req, res) => {
   });
 });
 
-// ✅ Global Error Handler
+// ✅ Global error handler
 app.use((err, req, res, next) => {
   console.error("❌ Global error:", err.message);
   res.status(err.status || 500).json({
@@ -89,11 +115,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ✅ Start Server
+// ✅ Connect to MongoDB and start the server
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
+      console.log("✅ MongoDB connected");
       console.log(`✅ Server running on port ${PORT}`);
+      console.log(`🌐 Allowed origins: ${allowedOrigins.join(", ")}`);
+      console.log("📡 Ready to accept requests...");
     });
   })
   .catch((error) => {
