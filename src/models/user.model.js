@@ -37,14 +37,17 @@ const userSchema = new mongoose.Schema(
     },
 
     /**
-     * 🔒 Password validation
-     * Must include: uppercase, lowercase, number, special char, min length 8
+     * 🔒 Password validation (GDPR-compliant)
+     * Only validated on creation or password change.
      */
     password: {
       type: String,
       required: [true, "Password is required"],
       validate: {
         validator: function (value) {
+          // ✅ Only validate on creation or when changed
+          if (!this.isModified("password")) return true;
+
           const regex =
             /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
           return regex.test(value);
@@ -67,7 +70,7 @@ const userSchema = new mongoose.Schema(
 
     refreshToken: {
       type: String,
-      select: false, // hide by default
+      select: false, // hidden by default
     },
 
     // ⚖️ GDPR-related fields
