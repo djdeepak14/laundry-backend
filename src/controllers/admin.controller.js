@@ -34,14 +34,17 @@ export const approveUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Approve account deletion (GDPR)
- * Admin permanently deletes user after review
+ * ✅ Approve account deletion (GDPR) or direct deletion
+ * Admin permanently deletes user after review or directly
  */
 export const deleteUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const user = await User.findById(id);
 
   if (!user) throw new ApiError(404, "User not found");
+  if (user._id.toString() === req.user._id.toString()) {
+    throw new ApiError(403, "Cannot delete your own account");
+  }
 
   await User.findByIdAndDelete(id);
 

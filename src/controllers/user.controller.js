@@ -169,7 +169,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 /**
  * ✅ Get Current User (for /user/info)
  */
-const getCurrentUser = asyncHandler(async (req, res) => {
+const getCurrentUser = asyncHandler(async (req, resp) => {
   const currUser = req.user;
   if (!currUser) {
     throw new ApiError(400, "No user found in request");
@@ -184,7 +184,6 @@ const getCurrentUser = asyncHandler(async (req, res) => {
 
 /**
  * ⚖️ GDPR - Request Account Deletion
- * Marks the user's account for deletion (admin will review and delete later)
  */
 const requestAccountDeletion = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -192,7 +191,6 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
 
   if (!user) throw new ApiError(404, "User not found");
 
-  // Ensure field names match your DB and admin panel
   if (user.deletionRequested) {
     throw new ApiError(
       400,
@@ -200,7 +198,6 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
     );
   }
 
-  // ✅ Correct field naming (used by AdminDashboard)
   user.deletionRequested = true;
   user.deletionRequestedAt = new Date();
   await user.save({ validateBeforeSave: false });
@@ -221,6 +218,24 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
 });
 
 /**
+ * ✅ Toggle User Role (admin <-> user)
+ */
+const toggleUserRole = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, "User not found");
+  if (user._id.toString() === req.user._id.toString()) {
+    throw new ApiError(403, "Cannot change your own role");
+  }
+  user.role = user.role === "admin" ? "user" : "admin";
+  await user.save();
+  console.log(`🔄 User role toggled: ${user.email} to ${user.role}`);
+  return res.status(200).json(
+    new ApiResponse(200, { role: user.role }, "User role updated successfully")
+  );
+});
+
+/**
  * ✅ Exports
  */
 export {
@@ -229,4 +244,5 @@ export {
   logoutUser,
   getCurrentUser,
   requestAccountDeletion,
+  toggleUserRole,
 };

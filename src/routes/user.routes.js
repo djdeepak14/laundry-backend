@@ -4,28 +4,33 @@ import {
   loginUser,
   logoutUser,
   getCurrentUser,
-  requestAccountDeletion, // ✅ New Controller Function
+  requestAccountDeletion,
+  toggleUserRole,
 } from "../controllers/user.controller.js";
-import { verifyJWT } from "../controllers/auth.controller.js";
+import { verifyJWT, verifyAdmin } from "../controllers/auth.controller.js";
 
 const router = Router();
 
 /**
  * 📝 Public Routes
  */
-router.post("/register", registerUser); // User registration
-router.post("/login", loginUser);       // User login
+router.post("/register", registerUser);
+router.post("/login", loginUser);
 
 /**
  * 🔐 Protected Routes
  */
-router.post("/logout", verifyJWT, logoutUser); // Logout only if logged in
-router.get("/info", verifyJWT, getCurrentUser); // Get logged-in user info
+router.post("/logout", verifyJWT, logoutUser);
+router.get("/info", verifyJWT, getCurrentUser);
 
 /**
  * ⚖️ GDPR - Account Deletion Request
- * Users can request account deletion, handled by admins later.
  */
 router.post("/request-deletion", verifyJWT, requestAccountDeletion);
+
+/**
+ * 🛠️ Admin - Toggle User Role
+ */
+router.patch("/toggle-role/:userId", verifyJWT, verifyAdmin, toggleUserRole);
 
 export default router;

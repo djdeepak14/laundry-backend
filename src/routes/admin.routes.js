@@ -23,7 +23,7 @@ router.patch("/users/:id/approve", approveUser);
 
 /**
  * @route   DELETE /api/v1/admin/users/:id
- * @desc    Permanently delete a user (used to approve GDPR deletion)
+ * @desc    Permanently delete a user (used to approve GDPR deletion or direct deletion)
  * @access  Admin
  */
 router.delete("/users/:id", deleteUser);

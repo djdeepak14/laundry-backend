@@ -12,18 +12,11 @@ import machineRoutes from "./src/routes/machine.routes.js";
 import userRoutes from "./src/routes/user.routes.js";
 import adminRoutes from "./src/routes/admin.routes.js";
 
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ path: "./.env" });
-  console.log("✅ Loaded local .env configuration");
-}
+dotenv.config({ path: "./.env" });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || "development";
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
-
-console.log("🌍 Environment:", NODE_ENV);
-console.log("🌐 Allowed Origin:", CORS_ORIGIN);
 
 app.use(
   cors({
@@ -39,26 +32,21 @@ app.use(
 
 app.use(express.json());
 
-// Health check routes
+// ✅ Health Check
 app.get("/", (req, res) => {
   res.send("🚀 Laundry Backend is running successfully!");
 });
 
-app.get("/status", (req, res) =>
-  res.json({ status: "ok", message: "Server running" })
-);
+app.get("/status", (_, res) => res.json({ status: "ok", message: "Server running" }));
+app.get("/api/v1/status", (_, res) => res.json({ status: "ok", message: "API online" }));
 
-app.get("/api/v1/status", (req, res) =>
-  res.json({ status: "ok", message: "API online" })
-);
-
-// API routes
+// ✅ Main API Routes
 app.use("/api/v1/booking", bookingRoutes);
 app.use("/api/v1/machines", machineRoutes);
 app.use("/api/v1/user", userRoutes);
 app.use("/api/v1/admin", adminRoutes);
 
-// Background job: auto-clean expired bookings
+// ✅ Background job: auto-clean expired bookings
 cron.schedule("*/10 * * * *", async () => {
   try {
     const now = DateTime.utc().toJSDate();
@@ -83,7 +71,7 @@ cron.schedule("*/10 * * * *", async () => {
   }
 });
 
-// 404 handler
+// ✅ 404 Handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -92,7 +80,7 @@ app.use((req, res) => {
   });
 });
 
-// Global error handler
+// ✅ Global Error Handler
 app.use((err, req, res, next) => {
   console.error("❌ Global error:", err.message);
   res.status(err.status || 500).json({
@@ -101,13 +89,11 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server after MongoDB connection
+// ✅ Start Server
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log("✅ MongoDB connected");
       console.log(`✅ Server running on port ${PORT}`);
-      console.log("📡 Ready to accept requests...");
     });
   })
   .catch((error) => {
