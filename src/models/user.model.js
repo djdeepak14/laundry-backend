@@ -4,35 +4,47 @@ import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
+/**
+ * 🧱 User Schema
+ * GDPR-compliant + secure password handling
+ */
 const userSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
+      required: [true, "Name is required"],
       trim: true,
     },
+
     username: {
       type: String,
-      required: true,
+      required: [true, "Username is required"],
       unique: true,
       trim: true,
     },
+
     email: {
       type: String,
-      required: true,
+      required: [true, "Email is required"],
       unique: true,
       index: true,
       lowercase: true,
       trim: true,
+      match: [
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+        "Please enter a valid email address",
+      ],
     },
 
-    // ✅ Password with validation
+    /**
+     * 🔒 Password validation
+     * Must include: uppercase, lowercase, number, special char, min length 8
+     */
     password: {
       type: String,
-      required: [true, "Password required"],
+      required: [true, "Password is required"],
       validate: {
         validator: function (value) {
-          // Require: 8+ chars, 1 uppercase, 1 lowercase, 1 number, 1 special character
           const regex =
             /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
           return regex.test(value);
@@ -47,40 +59,56 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user",
     },
+
     isApproved: {
       type: Boolean,
       default: false,
     },
+
     refreshToken: {
       type: String,
+      select: false, // hide by default
     },
 
-    // ✅ GDPR-related fields (fixed names)
+    // ⚖️ GDPR-related fields
     deletionRequested: {
       type: Boolean,
-      default: false, // true = user requested account deletion
+      default: false,
     },
     deletionRequestedAt: {
       type: Date,
-      default: null, // timestamp when user requested deletion
+      default: null,
     },
   },
-  { timestamps: true } // adds createdAt and updatedAt automatically
+  { timestamps: true }
 );
 
-// ✅ Hash password before saving
+/**
+ * 🧂 Pre-save hook: hash password before storing
+ */
 userSchema.pre("save", async function (next) {
+  // Skip hashing if password not changed
   if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
-// ✅ Compare password for login
+/**
+ * 🧩 Instance method: compare plaintext vs hashed password
+ */
 userSchema.methods.isPasswordCorrect = async function (password) {
   return bcrypt.compare(password, this.password);
 };
 
-// ✅ Generate JWT access token
+/**
+ * 🔑 Generate JWT Access Token
+ */
 userSchema.methods.generateAccessToken = function () {
   return jwt.sign(
     { _id: this._id, role: this.role },
@@ -89,7 +117,9 @@ userSchema.methods.generateAccessToken = function () {
   );
 };
 
-// ✅ Generate JWT refresh token
+/**
+ * 🔄 Generate JWT Refresh Token
+ */
 userSchema.methods.generateRefreshToken = function () {
   return jwt.sign(
     { _id: this._id },
@@ -98,5 +128,19 @@ userSchema.methods.generateRefreshToken = function () {
   );
 };
 
+/**
+ * 🧹 Hide sensitive data when converting to JSON
+ */
+userSchema.methods.toJSON = function () {
+  const userObject = this.toObject();
+  delete userObject.password;
+  delete userObject.refreshToken;
+  delete userObject.__v;
+  return userObject;
+};
+
+/**
+ * 🧱 Model export
+ */
 const User = mongoose.model("User", userSchema);
 export default User;
