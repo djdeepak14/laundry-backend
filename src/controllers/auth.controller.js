@@ -7,6 +7,7 @@ import User from "../models/user.model.js";
    ======================================== */
 export const verifyJWT = async (req, res, next) => {
   try {
+    // Accept Authorization header in multiple formats (case-insensitive)
     const authHeader = req.headers.authorization || req.headers.Authorization;
 
     if (!authHeader?.startsWith("Bearer ")) {
@@ -18,17 +19,20 @@ export const verifyJWT = async (req, res, next) => {
       return res.status(401).json({ message: "Token missing or invalid format" });
     }
 
+    // 🔍 Verify token
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
     } catch (err) {
       console.error("❌ JWT verification failed:", err.message);
+
       if (err.name === "TokenExpiredError") {
-        return res.status(401).json({ message: "Token has expired" });
+        return res.status(401).json({ message: "Session expired. Please log in again." });
       }
       return res.status(401).json({ message: "Invalid or malformed token" });
     }
 
+    // 🔎 Find user and attach to request
     const user = await User.findById(decoded._id).select("-password -refreshToken");
     if (!user) {
       return res.status(401).json({ message: "User not found or deactivated" });
@@ -52,6 +56,7 @@ export const isAdmin = (req, res, next) => {
     }
 
     if (req.user.role !== "admin") {
+      console.warn(`🚫 Unauthorized access attempt by ${req.user.email}`);
       return res.status(403).json({ message: "Access denied: Admins only" });
     }
 
@@ -62,11 +67,11 @@ export const isAdmin = (req, res, next) => {
   }
 };
 
-// ✅ For backward compatibility with routes importing verifyAdmin
+// ✅ Backward compatibility alias
 export const verifyAdmin = isAdmin;
 
 /* ========================================
-   🔐 Controller: Manual Login (Optional)
+   🔐 Controller: Manual Login (Optional Fallback)
    ======================================== */
 export const login = async (req, res) => {
   try {
@@ -78,29 +83,33 @@ export const login = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
+      console.warn(`⚠️ Login failed: No user found for ${email}`);
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
     const isMatch = await user.isPasswordCorrect(password);
     if (!isMatch) {
+      console.warn(`⚠️ Login failed: Wrong password for ${email}`);
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
     if (!user.isApproved) {
-      return res
-        .status(403)
-        .json({ message: "Your account is awaiting admin approval" });
+      console.warn(`🕒 User not approved yet: ${email}`);
+      return res.status(403).json({
+        message: "Your account is awaiting admin approval",
+      });
     }
 
+    // ✅ Generate Access Token
     const accessToken = jwt.sign(
       { _id: user._id, role: user.role },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "1d" }
     );
 
-    console.log(`✅ Login success for: ${user.email} (${user.role})`);
+    console.log(`✅ Login success: ${user.email} (${user.role})`);
 
-    return res.json({
+    return res.status(200).json({
       message: "Login successful",
       accessToken,
       role: user.role,
