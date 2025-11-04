@@ -7,20 +7,23 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
-// Helper to calculate hours between start and end times
+/* ===============================
+   🧩 Utility Helpers
+   =============================== */
+
+// Calculate hours between two Date objects
 const hourDiff = (a, b) => Math.max(0, Math.round((b - a) / 3600000));
 
-// ✅ NEW: Auto-complete expired bookings + release machines
+// Auto-complete expired bookings and release machines
 const autoUpdateExpiredBookings = async () => {
   const now = DateTime.utc().toJSDate();
 
-  // Find bookings that are still marked "booked" but already ended
-  const expiredBookings = await Booking.find({
+  const expired = await Booking.find({
     status: "booked",
     end: { $lte: now },
   });
 
-  for (const b of expiredBookings) {
+  for (const b of expired) {
     b.status = "completed";
     await b.save();
 
@@ -31,12 +34,12 @@ const autoUpdateExpiredBookings = async () => {
     }
   }
 
-  if (expiredBookings.length > 0) {
-    console.log(`✅ Auto-completed ${expiredBookings.length} expired bookings`);
+  if (expired.length > 0) {
+    console.log(`✅ Auto-completed ${expired.length} expired bookings`);
   }
 };
 
-// Helper to count active user bookings by machine type
+// Get number of active bookings per machine type for a user
 const getActiveBookingsCount = async ({ userId, type, session }) => {
   const filter = {
     user: userId,
@@ -52,35 +55,44 @@ const getActiveBookingsCount = async ({ userId, type, session }) => {
   return Booking.countDocuments(filter).session(session);
 };
 
-// ================= CREATE BOOKING =================
+/* ===============================
+   🧾 CREATE BOOKING
+   =============================== */
 const createBooking = asyncHandler(async (req, res) => {
   const { machineId, start } = req.body;
   const userId = req.user?._id;
 
-  console.log(`Booking attempt: user=${userId}, machine=${machineId}, start=${start}`);
-
   if (!userId) throw new ApiError(401, "Unauthorized request");
-  if (!machineId || !start) throw new ApiError(400, "Machine ID and start time are required");
+  if (!machineId || !start)
+    throw new ApiError(400, "Machine ID and start time are required");
 
   const startUtc = DateTime.fromISO(start, { zone: "utc" });
   if (!startUtc.isValid) throw new ApiError(400, "Invalid start time");
-  if (startUtc.minute !== 0) throw new ApiError(400, "Start time must be exactly on the hour");
+  if (startUtc.minute !== 0)
+    throw new ApiError(400, "Start time must be exactly on the hour");
 
   const nowUtc = DateTime.utc();
-  if (startUtc <= nowUtc) throw new ApiError(400, "Start time must be in the future");
+  if (startUtc <= nowUtc)
+    throw new ApiError(400, "Start time must be in the future");
 
   const endUtc = startUtc.plus({ hours: 1 });
   const session = await mongoose.startSession();
 
   try {
     let responseData = null;
+
     await session.withTransaction(async () => {
       const machine = await Machine.findById(machineId).session(session);
       if (!machine) throw new ApiError(404, "Machine not found");
-      if (!machine.isActive) throw new ApiError(409, "This machine is inactive.");
-      if (machine.status === "out_of_service" || machine.booking?.enabled === false)
+      if (!machine.isActive)
+        throw new ApiError(409, "This machine is inactive.");
+      if (
+        machine.status === "out_of_service" ||
+        machine.booking?.enabled === false
+      )
         throw new ApiError(409, "This machine cannot be booked now.");
 
+      // User overlap check
       const userOverlap = await Booking.findOne({
         user: userId,
         status: "booked",
@@ -92,15 +104,10 @@ const createBooking = asyncHandler(async (req, res) => {
       }).session(session);
 
       if (userOverlap) {
-        const conflictStart = DateTime.fromJSDate(userOverlap.start, { zone: "utc" })
-          .setZone("Europe/Helsinki")
-          .toFormat("yyyy-MM-dd HH:mm");
-        const conflictEnd = DateTime.fromJSDate(userOverlap.end, { zone: "utc" })
-          .setZone("Europe/Helsinki")
-          .toFormat("HH:mm");
-        throw new ApiError(409, `You already have a booking on ${conflictStart} to ${conflictEnd} EET.`);
+        throw new ApiError(409, "You already have a booking during this period.");
       }
 
+      // Machine overlap check
       const machineOverlap = await Booking.findOne({
         machine: machineId,
         status: "booked",
@@ -112,53 +119,57 @@ const createBooking = asyncHandler(async (req, res) => {
       }).session(session);
 
       if (machineOverlap) {
-        const conflictStart = DateTime.fromJSDate(machineOverlap.start, { zone: "utc" })
-          .setZone("Europe/Helsinki")
-          .toFormat("yyyy-MM-dd HH:mm");
-        throw new ApiError(409, `This machine is already booked on ${conflictStart} EET.`);
+        throw new ApiError(409, "This machine is already booked for that time slot.");
       }
 
+      // Booking limits
       const washerCount = await getActiveBookingsCount({ userId, type: "washer", session });
       const dryerCount = await getActiveBookingsCount({ userId, type: "dryer", session });
 
-      if (machine.type === "washer" && washerCount >= 2) {
+      if (machine.type === "washer" && washerCount >= 2)
         throw new ApiError(403, "You have reached the maximum of 2 active washer bookings.");
-      }
-      if (machine.type === "dryer" && dryerCount >= 2) {
+      if (machine.type === "dryer" && dryerCount >= 2)
         throw new ApiError(403, "You have reached the maximum of 2 active dryer bookings.");
-      }
 
-      const booking = await Booking.create(
-        [{
-          machine: machine._id,
-          user: userId,
-          start: startUtc.toJSDate(),
-          end: endUtc.toJSDate(),
-          status: "booked",
-        }],
+      // Create booking
+      const [booking] = await Booking.create(
+        [
+          {
+            machine: machine._id,
+            user: userId,
+            start: startUtc.toJSDate(),
+            end: endUtc.toJSDate(),
+            status: "booked",
+          },
+        ],
         { session }
       );
 
       machine.status = "booked";
       await machine.save({ session });
-      const populated = await booking[0].populate("machine", "code name type");
+
+      // ✅ Populate with machine & user for better response
+      const populated = await Booking.findById(booking._id)
+        .populate("machine", "code name type status")
+        .populate("user", "name email");
+
       responseData = populated;
     });
 
-    console.log(`Booking created: user=${userId}, machine=${machineId}, start=${start}`);
-    return res.status(201).json(new ApiResponse(201, responseData, "Booked successfully"));
+    return res
+      .status(201)
+      .json(new ApiResponse(201, responseData, "Booked successfully"));
   } catch (err) {
-    console.error("Transaction error:", err);
-    if (err.code === 11000 || err.name === "MongoServerError") {
-      throw new ApiError(409, "This time slot was just booked by someone else.");
-    }
-    throw new ApiError(err.statusCode || 500, err.message || "Booking failed due to server error.");
+    console.error("Booking creation error:", err);
+    throw new ApiError(err.statusCode || 500, err.message || "Booking failed");
   } finally {
     session.endSession();
   }
 });
 
-// ================= USER ROUTES =================
+/* ===============================
+   ❌ CANCEL BOOKING
+   =============================== */
 const cancelBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user?._id;
@@ -171,32 +182,34 @@ const cancelBooking = asyncHandler(async (req, res) => {
       const booking = await Booking.findById(id).session(session);
       if (!booking) throw new ApiError(404, "Booking not found");
       if (booking.user.toString() !== userId.toString())
-        throw new ApiError(403, "Not authorized to cancel this booking");
+        throw new ApiError(403, "You cannot cancel this booking");
 
       booking.status = "cancelled";
       await booking.save({ session });
 
       const machine = await Machine.findById(booking.machine).session(session);
-      if (!machine) throw new ApiError(404, "Associated machine not found");
-      machine.status = "available";
-      await machine.save({ session });
+      if (machine) {
+        machine.status = "available";
+        await machine.save({ session });
+      }
 
       responseData = booking;
     });
 
-    return res.status(200).json(new ApiResponse(200, responseData, "Booking cancelled successfully."));
-  } catch (err) {
-    throw err;
+    return res
+      .status(200)
+      .json(new ApiResponse(200, responseData, "Booking cancelled successfully"));
   } finally {
     session.endSession();
   }
 });
 
-// ================= BOOKINGS FETCH =================
+/* ===============================
+   📅 USER BOOKINGS
+   =============================== */
 const PastBookings = asyncHandler(async (req, res) => {
-  await autoUpdateExpiredBookings(); // ✅ Update expired before fetching
+  await autoUpdateExpiredBookings();
   const userId = req.user?._id;
-  if (!userId) throw new ApiError(401, "Unauthorized");
   const now = DateTime.utc().toJSDate();
 
   const bookings = await Booking.find({
@@ -205,41 +218,53 @@ const PastBookings = asyncHandler(async (req, res) => {
     end: { $lt: now },
   }).populate("machine", "code name type");
 
-  return res.status(200).json(new ApiResponse(200, bookings, "Past bookings retrieved"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "Past bookings retrieved"));
 });
 
 const UpcomingBookings = asyncHandler(async (req, res) => {
-  await autoUpdateExpiredBookings(); // ✅ Update expired before fetching
+  await autoUpdateExpiredBookings();
   const userId = req.user?._id;
-  if (!userId) throw new ApiError(401, "Unauthorized");
   const now = DateTime.utc().toJSDate();
 
   const bookings = await Booking.find({
     user: userId,
     status: "booked",
     start: { $gte: now },
-  }).populate("machine", "code name type");
+  }).populate("machine", "code name type status");
 
-  return res.status(200).json(new ApiResponse(200, bookings, "Upcoming bookings retrieved"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "Upcoming bookings retrieved"));
 });
 
-// ================= ADMIN ROUTES =================
+/* ===============================
+   🧮 ADMIN BOOKINGS
+   =============================== */
 const getAllBookings = asyncHandler(async (req, res) => {
-  await autoUpdateExpiredBookings(); // ✅ Auto-clean before fetching
+  await autoUpdateExpiredBookings();
+
   const bookings = await Booking.find()
     .populate("user", "name email")
     .populate("machine", "code name type status");
-  return res.status(200).json(new ApiResponse(200, bookings, "All bookings retrieved successfully"));
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "All bookings retrieved successfully"));
 });
 
 const adminGetAllBookings = asyncHandler(async (req, res) => {
-  await autoUpdateExpiredBookings(); // ✅ Auto-clean before fetching
+  await autoUpdateExpiredBookings();
+
   const bookings = await Booking.find({})
     .populate("user", "name email role")
     .populate("machine", "code name type status isActive")
     .sort({ start: -1 });
 
-  return res.status(200).json(new ApiResponse(200, bookings, "Admin: All bookings retrieved"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, bookings, "Admin: All bookings retrieved"));
 });
 
 const adminCancelAnyBooking = asyncHandler(async (req, res) => {
@@ -249,28 +274,36 @@ const adminCancelAnyBooking = asyncHandler(async (req, res) => {
   try {
     let responseData = null;
     await session.withTransaction(async () => {
-      const booking = await Booking.findById(id).session(session);
+      const booking = await Booking.findById(id)
+        .populate("machine", "name code")
+        .populate("user", "name email")
+        .session(session);
+
       if (!booking) throw new ApiError(404, "Booking not found");
 
       booking.status = "cancelled";
       await booking.save({ session });
 
       const machine = await Machine.findById(booking.machine).session(session);
-      if (!machine) throw new ApiError(404, "Associated machine not found");
-      machine.status = "available";
-      await machine.save({ session });
+      if (machine) {
+        machine.status = "available";
+        await machine.save({ session });
+      }
 
       responseData = booking;
     });
 
-    return res.status(200).json(new ApiResponse(200, responseData, "Booking cancelled by admin"));
-  } catch (err) {
-    throw err;
+    return res
+      .status(200)
+      .json(new ApiResponse(200, responseData, "Booking cancelled by admin"));
   } finally {
     session.endSession();
   }
 });
 
+/* ===============================
+   ✅ EXPORTS
+   =============================== */
 export {
   createBooking,
   cancelBooking,
