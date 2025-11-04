@@ -4,7 +4,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import User from "../models/user.model.js";
 
 /**
- * Generate both Access and Refresh Tokens
+ * 🔐 Generate both Access and Refresh Tokens
  */
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -169,7 +169,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 /**
  * ✅ Get Current User (for /user/info)
  */
-const getCurrentUser = asyncHandler(async (req, resp) => {
+const getCurrentUser = asyncHandler(async (req, res) => {
   const currUser = req.user;
   if (!currUser) {
     throw new ApiError(400, "No user found in request");
@@ -223,16 +223,19 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
 const toggleUserRole = asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const user = await User.findById(userId);
+
   if (!user) throw new ApiError(404, "User not found");
   if (user._id.toString() === req.user._id.toString()) {
     throw new ApiError(403, "Cannot change your own role");
   }
+
   user.role = user.role === "admin" ? "user" : "admin";
-  await user.save();
-  console.log(`🔄 User role toggled: ${user.email} to ${user.role}`);
-  return res.status(200).json(
-    new ApiResponse(200, { role: user.role }, "User role updated successfully")
-  );
+  await user.save({ validateBeforeSave: false }); // ✅ Skip full validation
+
+  console.log(`🔄 User role toggled: ${user.email} → ${user.role}`);
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { role: user.role }, "User role updated successfully"));
 });
 
 /**
