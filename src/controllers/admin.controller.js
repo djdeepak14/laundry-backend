@@ -5,13 +5,15 @@ import { ApiError } from "../utils/ApiError.js";
 
 /**
  * ✅ Get all users (includes deletion request fields)
+ * Returns basic user info for admin dashboard
  */
 export const getAllUsers = asyncHandler(async (req, res) => {
   const users = await User.find(
     {},
     "name email username isApproved role createdAt deletionRequested deletionRequestedAt"
-  );
+  ).sort({ createdAt: -1 });
 
+  console.log(`👥 Admin fetched ${users.length} users`);
   return res
     .status(200)
     .json(new ApiResponse(200, users, "Users fetched successfully."));
@@ -19,18 +21,32 @@ export const getAllUsers = asyncHandler(async (req, res) => {
 
 /**
  * ✅ Approve user registration
+ * Fix: disable validators to avoid password regex revalidation
  */
 export const approveUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
+
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found");
 
-  user.isApproved = true;
-  await user.save();
+  if (user.isApproved) {
+    return res
+      .status(200)
+      .json(new ApiResponse(200, user, "User is already approved."));
+  }
+
+  // ✅ Update using findByIdAndUpdate to skip password validation
+  const updatedUser = await User.findByIdAndUpdate(
+    id,
+    { $set: { isApproved: true } },
+    { new: true, runValidators: false } // critical fix
+  );
+
+  console.log(`✅ User approved: ${updatedUser.email}`);
 
   return res
     .status(200)
-    .json(new ApiResponse(200, user, "User approved successfully."));
+    .json(new ApiResponse(200, updatedUser, "User approved successfully."));
 });
 
 /**
@@ -42,11 +58,14 @@ export const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(id);
 
   if (!user) throw new ApiError(404, "User not found");
+
   if (user._id.toString() === req.user._id.toString()) {
     throw new ApiError(403, "Cannot delete your own account");
   }
 
-  await User.findByIdAndDelete(id);
+  await User.findByIdAndDelete(id, { runValidators: false });
+
+  console.log(`🗑️ User deleted by admin: ${user.email}`);
 
   return res
     .status(200)
