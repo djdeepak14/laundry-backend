@@ -5,8 +5,9 @@ import {
   createMachine,
   updateMachineStatus,
   deleteMachine,
+  machinesByType,
 } from "../controllers/machine.controller.js";
-import { verifyJWT, isAdmin } from "../controllers/auth.controller.js"; // ✅ Fixed import
+import { verifyJWT, isAdmin } from "../controllers/auth.controller.js";
 
 const router = Router();
 
@@ -16,6 +17,7 @@ const router = Router();
  * ============================
  */
 router.get("/", verifyJWT, getAllMachines);
+router.get("/type/:type", verifyJWT, machinesByType);
 
 /**
  * ============================
@@ -25,6 +27,7 @@ router.get("/", verifyJWT, getAllMachines);
 router.post("/", verifyJWT, isAdmin, createMachine);
 router.patch("/:id", verifyJWT, isAdmin, updateMachineStatus);
 router.delete("/:id", verifyJWT, isAdmin, deleteMachine);
+router.delete("/code/:code", verifyJWT, isAdmin, deleteMachine);
 
 /**
  * ============================

@@ -8,14 +8,15 @@ import Machine from "../models/machine.model.js";
  * ✅ Create a new machine (admin only)
  */
 const createMachine = asyncHandler(async (req, res) => {
-  const { code, type } = req.body;
+  const { name, code, type, location } = req.body;
 
-  if (!code || !type) {
-    throw new ApiError(400, "Both machine code and type are required");
+  // --- Validate inputs ---
+  if (!name || !code || !type) {
+    throw new ApiError(400, "Machine name, code, and type are required");
   }
 
-  if (!["dryer", "washer"].includes(type)) {
-    throw new ApiError(400, "Type must be either 'dryer' or 'washer'");
+  if (!["washer", "dryer"].includes(type)) {
+    throw new ApiError(400, "Type must be either 'washer' or 'dryer'");
   }
 
   const existing = await Machine.findOne({ code });
@@ -23,9 +24,12 @@ const createMachine = asyncHandler(async (req, res) => {
     throw new ApiError(409, "Machine with this code already exists");
   }
 
+  // --- Create machine ---
   const createdMachine = await Machine.create({
+    name: name.trim(),
     code: code.trim(),
     type,
+    location: location?.trim() || "Laundry Room",
     isActive: true,
     status: "available",
   });
@@ -72,7 +76,7 @@ const machinesByType = asyncHandler(async (req, res) => {
   }
 
   const machines = await Machine.find({ type, isActive: true })
-    .select("_id code type isActive status")
+    .select("_id name code type status isActive")
     .lean();
 
   return res
@@ -81,11 +85,12 @@ const machinesByType = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Fetch all machines (admin)
+ * ✅ Fetch all machines (admin only)
  */
 const getAllMachines = asyncHandler(async (req, res) => {
   const machines = await Machine.find()
-    .select("_id code type isActive status")
+    .select("_id name code type isActive status location createdAt")
+    .sort({ createdAt: -1 })
     .lean();
 
   return res
@@ -94,21 +99,25 @@ const getAllMachines = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Update machine status (admin only)
+ * ✅ Update machine status or active state (admin only)
  */
 const updateMachineStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, isActive, booking } = req.body;
 
-  if (!["available", "booked", "maintenance"].includes(status)) {
+  const allowedStatuses = ["available", "booked", "out_of_service", "maintenance"];
+  if (status && !allowedStatuses.includes(status)) {
     throw new ApiError(400, "Invalid machine status");
   }
 
-  const machine = await Machine.findByIdAndUpdate(
-    id,
-    { status },
-    { new: true }
-  );
+  const updateData = {};
+  if (status) updateData.status = status;
+  if (typeof isActive === "boolean") updateData.isActive = isActive;
+  if (booking && typeof booking.enabled === "boolean") {
+    updateData["booking.enabled"] = booking.enabled;
+  }
+
+  const machine = await Machine.findByIdAndUpdate(id, updateData, { new: true });
 
   if (!machine) {
     throw new ApiError(404, "Machine not found");
@@ -116,7 +125,7 @@ const updateMachineStatus = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, machine, "Machine status updated successfully"));
+    .json(new ApiResponse(200, machine, "Machine updated successfully"));
 });
 
 export {
@@ -124,5 +133,5 @@ export {
   deleteMachine,
   machinesByType,
   getAllMachines,
-  updateMachineStatus, 
+  updateMachineStatus,
 };

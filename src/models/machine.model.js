@@ -3,12 +3,13 @@ import mongoose from "mongoose";
 const machineSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
+    trim: true,
   },
   code: {
     type: String,
     required: true,
     unique: true,
+    trim: true,
   },
   type: {
     type: String,
@@ -17,7 +18,7 @@ const machineSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["available", "booked", "out_of_service"], // added "booked"
+    enum: ["available", "booked", "out_of_service", "maintenance"],
     default: "available",
   },
   isActive: {
@@ -32,7 +33,7 @@ const machineSchema = new mongoose.Schema({
   },
   location: {
     type: String,
-    default: "Laundry Room", // optional, just helps show where it is
+    default: "Laundry Room",
   },
   createdAt: {
     type: Date,
@@ -41,4 +42,3 @@ const machineSchema = new mongoose.Schema({
 });
 
 export default mongoose.model("Machine", machineSchema);
-  

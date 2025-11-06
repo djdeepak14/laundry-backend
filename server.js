@@ -27,7 +27,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://laundry-frontend-nine.vercel.app",
-  "https://laundry-frontend-nine.vercel.app/", // handle trailing slash
+  "https://laundry-frontend-nine.vercel.app/", // trailing slash
 ];
 
 // ✅ CORS middleware (with preflight)
@@ -47,10 +47,10 @@ app.use(
   })
 );
 
-// ✅ Ensure preflight OPTIONS requests are handled
+// ✅ Handle preflight
 app.options("*", cors());
 
-// ✅ JSON body parser
+// ✅ Parse incoming JSON
 app.use(express.json());
 
 // ✅ Health check routes
@@ -58,10 +58,7 @@ app.get("/", (req, res) => {
   res.send("🚀 Laundry Backend is running successfully!");
 });
 
-app.get("/status", (_, res) =>
-  res.json({ status: "ok", message: "Server running" })
-);
-
+app.get("/status", (_, res) => res.json({ status: "ok", message: "Server running" }));
 app.get("/api/v1/status", (_, res) =>
   res.json({ status: "ok", message: "API online" })
 );
@@ -97,7 +94,7 @@ cron.schedule("*/10 * * * *", async () => {
   }
 });
 
-// ✅ 404 route handler
+// ✅ 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -115,7 +112,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ✅ Connect to MongoDB and start the server
+// ✅ Connect to MongoDB and start server
 connectDB()
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
