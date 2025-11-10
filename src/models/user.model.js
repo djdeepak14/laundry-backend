@@ -5,8 +5,9 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
 /**
- * 🧱 User Schema
- * GDPR-compliant + secure password handling
+ * User Schema
+ * Defines the structure of user data stored in MongoDB.
+ * Includes password validation, GDPR-related fields, and authentication helpers.
  */
 const userSchema = new mongoose.Schema(
   {
@@ -37,15 +38,15 @@ const userSchema = new mongoose.Schema(
     },
 
     /**
-     * 🔒 Password validation (GDPR-compliant)
-     * Only validated on creation or password change.
+     * Password field with validation for strong security.
+     * Only validated when creating or updating the password.
      */
     password: {
       type: String,
       required: [true, "Password is required"],
       validate: {
         validator: function (value) {
-          // ✅ Only validate on creation or when changed
+          // Validate only if password is new or modified
           if (!this.isModified("password")) return true;
 
           const regex =
@@ -70,10 +71,10 @@ const userSchema = new mongoose.Schema(
 
     refreshToken: {
       type: String,
-      select: false, // hidden by default
+      select: false, // Exclude by default for security
     },
 
-    // ⚖️ GDPR-related fields
+    // GDPR-related fields for account deletion tracking
     deletionRequested: {
       type: Boolean,
       default: false,
@@ -87,10 +88,11 @@ const userSchema = new mongoose.Schema(
 );
 
 /**
- * 🧂 Pre-save hook: hash password before storing
+ * Pre-save hook
+ * Hashes the password before saving it to the database.
+ * This ensures that plain text passwords are never stored.
  */
 userSchema.pre("save", async function (next) {
-  // Skip hashing if password not changed
   if (!this.isModified("password")) return next();
 
   try {
@@ -103,14 +105,16 @@ userSchema.pre("save", async function (next) {
 });
 
 /**
- * 🧩 Instance method: compare plaintext vs hashed password
+ * Instance method to compare a plain-text password
+ * with the stored hashed password.
  */
 userSchema.methods.isPasswordCorrect = async function (password) {
   return bcrypt.compare(password, this.password);
 };
 
 /**
- * 🔑 Generate JWT Access Token
+ * Instance method to generate a short-lived access token (JWT).
+ * Used for authentication in protected routes.
  */
 userSchema.methods.generateAccessToken = function () {
   return jwt.sign(
@@ -121,7 +125,8 @@ userSchema.methods.generateAccessToken = function () {
 };
 
 /**
- * 🔄 Generate JWT Refresh Token
+ * Instance method to generate a long-lived refresh token (JWT).
+ * Used to issue new access tokens without re-login.
  */
 userSchema.methods.generateRefreshToken = function () {
   return jwt.sign(
@@ -132,7 +137,8 @@ userSchema.methods.generateRefreshToken = function () {
 };
 
 /**
- * 🧹 Hide sensitive data when converting to JSON
+ * Modify the JSON output to exclude sensitive data.
+ * This prevents exposure of passwords, tokens, or internal fields.
  */
 userSchema.methods.toJSON = function () {
   const userObject = this.toObject();
@@ -143,7 +149,8 @@ userSchema.methods.toJSON = function () {
 };
 
 /**
- * 🧱 Model export
+ * Export the User model.
+ * Represents users in the database and provides helper methods.
  */
 const User = mongoose.model("User", userSchema);
 export default User;

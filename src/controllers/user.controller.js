@@ -4,7 +4,8 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import User from "../models/user.model.js";
 
 /**
- * 🔐 Generate both Access and Refresh Tokens
+ * Generate access and refresh tokens for a user.
+ * Also stores the new refresh token in the database for future validation.
  */
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -19,19 +20,19 @@ const generateAccessAndRefreshToken = async (userId) => {
 
     return { accessToken, refreshToken };
   } catch (error) {
-    console.error("❌ Token generation error:", error);
+    console.error("Token generation error:", error);
     throw new ApiError(500, "Failed to generate tokens");
   }
 };
 
 /**
- * ✅ Register User
+ * Register a new user account.
+ * Validates input fields, enforces password security, and prevents duplicates.
  */
 const registerUser = asyncHandler(async (req, res) => {
-  console.log("🟢 Register payload:", req.body);
   const { name, email, password, confirmPassword } = req.body;
 
-  // 🔍 Basic input validation
+  // Basic field validation
   if (!name || !email || !password || !confirmPassword) {
     throw new ApiError(400, "All fields are required");
   }
@@ -40,17 +41,19 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Passwords do not match");
   }
 
+  // Validate email format
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     throw new ApiError(400, "Invalid email format");
   }
 
+  // Ensure email is not already registered
   const existingUser = await User.findOne({ email });
   if (existingUser) {
     throw new ApiError(400, "User with this email already exists");
   }
 
-  // 🔒 Strong password validation (GDPR)
+  // Validate password strength (GDPR-compliant)
   const passwordRegex =
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
   if (!passwordRegex.test(password)) {
@@ -60,7 +63,7 @@ const registerUser = asyncHandler(async (req, res) => {
     );
   }
 
-  // 🧩 Try to create user safely
+  // Create user record
   let user;
   try {
     user = await User.create({
@@ -70,22 +73,21 @@ const registerUser = asyncHandler(async (req, res) => {
       email,
     });
   } catch (err) {
-    // Mongoose validation error
     if (err.name === "ValidationError") {
       const message = Object.values(err.errors)
         .map((e) => e.message)
         .join(", ");
       throw new ApiError(400, message);
     }
-    // Duplicate key error (email/username already exists)
     if (err.code === 11000) {
       throw new ApiError(400, "Email or username already exists");
     }
 
-    console.error("❌ Registration error:", err);
+    console.error("Registration error:", err);
     throw new ApiError(500, "Failed to register user");
   }
 
+  // Generate and return tokens after successful registration
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id);
   const createdUser = await User.findById(user._id).select("-password -refreshToken");
 
@@ -93,8 +95,6 @@ const registerUser = asyncHandler(async (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
   };
-
-  console.log("✅ User registered:", { email: user.email, id: user._id });
 
   return res
     .status(201)
@@ -116,10 +116,10 @@ const registerUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Login User
+ * Log in an existing user.
+ * Validates credentials and checks if the account has been approved by an admin.
  */
 const loginUser = asyncHandler(async (req, res) => {
-  console.log("🔐 Login payload:", req.body);
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -148,11 +148,6 @@ const loginUser = asyncHandler(async (req, res) => {
     secure: process.env.NODE_ENV === "production",
   };
 
-  console.log("✅ User logged in:", {
-    email: loggedInUser.email,
-    role: loggedInUser.role,
-  });
-
   return res
     .status(200)
     .cookie("accessToken", accessToken, cookieOptions)
@@ -173,7 +168,8 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Logout User
+ * Log out a user.
+ * Clears authentication tokens from cookies and invalidates the stored refresh token.
  */
 const logoutUser = asyncHandler(async (req, res) => {
   if (!req.user?._id) {
@@ -191,8 +187,6 @@ const logoutUser = asyncHandler(async (req, res) => {
     secure: process.env.NODE_ENV === "production",
   };
 
-  console.log("🚪 User logged out:", req.user.email);
-
   return res
     .status(200)
     .clearCookie("accessToken", cookieOptions)
@@ -201,7 +195,8 @@ const logoutUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Get Current User (for /user/info)
+ * Return details of the currently authenticated user.
+ * Used to verify session or display user information on the frontend.
  */
 const getCurrentUser = asyncHandler(async (req, res) => {
   const currUser = req.user;
@@ -209,15 +204,14 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "No user found in request");
   }
 
-  console.log("👤 Current user fetched:", currUser.email);
-
   return res
     .status(200)
     .json(new ApiResponse(200, currUser, "User data fetched successfully"));
 });
 
 /**
- * ⚖️ GDPR - Request Account Deletion
+ * Allow a user to request account deletion.
+ * The request must later be approved by an admin (GDPR compliance).
  */
 const requestAccountDeletion = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -236,8 +230,6 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
   user.deletionRequestedAt = new Date();
   await user.save({ validateBeforeSave: false });
 
-  console.log(`🧾 User requested account deletion: ${user.email}`);
-
   return res.status(200).json(
     new ApiResponse(
       200,
@@ -252,7 +244,8 @@ const requestAccountDeletion = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Toggle User Role (admin <-> user)
+ * Allow an admin to toggle another user's role between 'admin' and 'user'.
+ * The current admin cannot change their own role.
  */
 const toggleUserRole = asyncHandler(async (req, res) => {
   const { userId } = req.params;
@@ -266,14 +259,11 @@ const toggleUserRole = asyncHandler(async (req, res) => {
 
   const newRole = user.role === "admin" ? "user" : "admin";
 
-  // ✅ Update only the role field, bypassing validations & hooks
   const updatedUser = await User.findByIdAndUpdate(
     userId,
     { $set: { role: newRole } },
     { new: true, runValidators: false }
   );
-
-  console.log(`🔄 User role toggled: ${user.email} → ${updatedUser.role}`);
 
   return res
     .status(200)
@@ -286,9 +276,7 @@ const toggleUserRole = asyncHandler(async (req, res) => {
     );
 });
 
-/**
- * ✅ Exports
- */
+// Export controller functions
 export {
   registerUser,
   loginUser,

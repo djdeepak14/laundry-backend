@@ -3,9 +3,13 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { ApiError } from "../utils/ApiError.js";
 
+// This controller handles admin operations related to users,
+// including fetching all users, approving accounts, and deleting users.
+
 /**
- * ✅ Get all users (includes deletion request fields)
- * Returns basic user info for admin dashboard
+ * Fetch all users from the database.
+ * Returns basic user information along with deletion request details.
+ * Used primarily for the admin dashboard display.
  */
 export const getAllUsers = asyncHandler(async (req, res) => {
   const users = await User.find(
@@ -13,15 +17,16 @@ export const getAllUsers = asyncHandler(async (req, res) => {
     "name email username isApproved role createdAt deletionRequested deletionRequestedAt"
   ).sort({ createdAt: -1 });
 
-  console.log(`👥 Admin fetched ${users.length} users`);
+  console.log(`Admin fetched ${users.length} users`);
   return res
     .status(200)
     .json(new ApiResponse(200, users, "Users fetched successfully."));
 });
 
 /**
- * ✅ Approve user registration
- * Fix: disable validators to avoid password regex revalidation
+ * Approve a user's registration.
+ * This marks the user as approved without re-validating the password field.
+ * The runValidators flag is turned off to avoid unnecessary password checks.
  */
 export const approveUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -35,14 +40,14 @@ export const approveUser = asyncHandler(async (req, res) => {
       .json(new ApiResponse(200, user, "User is already approved."));
   }
 
-  // ✅ Update using findByIdAndUpdate to skip password validation
+  // Update approval status while skipping validation to prevent regex rechecks
   const updatedUser = await User.findByIdAndUpdate(
     id,
     { $set: { isApproved: true } },
-    { new: true, runValidators: false } // critical fix
+    { new: true, runValidators: false }
   );
 
-  console.log(`✅ User approved: ${updatedUser.email}`);
+  console.log(`User approved: ${updatedUser.email}`);
 
   return res
     .status(200)
@@ -50,8 +55,9 @@ export const approveUser = asyncHandler(async (req, res) => {
 });
 
 /**
- * ✅ Approve account deletion (GDPR) or direct deletion
- * Admin permanently deletes user after review or directly
+ * Delete a user account.
+ * Can be triggered when approving a GDPR deletion request or removing a user directly.
+ * Prevents an admin from deleting their own account for safety reasons.
  */
 export const deleteUser = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -65,7 +71,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
 
   await User.findByIdAndDelete(id, { runValidators: false });
 
-  console.log(`🗑️ User deleted by admin: ${user.email}`);
+  console.log(`User deleted by admin: ${user.email}`);
 
   return res
     .status(200)

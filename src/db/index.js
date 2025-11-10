@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 
-// ✅ Always load .env from the project root
+//  Always load .env from the project root
 dotenv.config({ path: "./.env" });
 
 export const connectDB = async () => {
@@ -13,7 +13,7 @@ export const connectDB = async () => {
       throw new Error("❌ MONGODB_URI not found in environment variables");
     }
 
-    // ✅ If URI already includes a DB name (Atlas usually does), don’t append it
+    //  If URI already includes a DB name (Atlas usually does), don’t append it
     const fullURI = MONGODB_URI.includes(DB_NAME)
       ? MONGODB_URI
       : `${MONGODB_URI.replace(/\/$/, "")}/${DB_NAME}`;

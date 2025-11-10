@@ -7,14 +7,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
-/* ===============================
-   🧩 Utility Helpers
-   =============================== */
-
-// Calculate hours between two Date objects
+// Utility function to calculate the number of hours between two dates
 const hourDiff = (a, b) => Math.max(0, Math.round((b - a) / 3600000));
 
-// Auto-complete expired bookings and release machines
+// Automatically mark expired bookings as completed and release the machines
 const autoUpdateExpiredBookings = async () => {
   const now = DateTime.utc().toJSDate();
 
@@ -35,11 +31,11 @@ const autoUpdateExpiredBookings = async () => {
   }
 
   if (expired.length > 0) {
-    console.log(`✅ Auto-completed ${expired.length} expired bookings`);
+    console.log(`Auto-completed ${expired.length} expired bookings`);
   }
 };
 
-// Get number of active bookings per machine type for a user
+// Count the number of active bookings a user currently has by machine type
 const getActiveBookingsCount = async ({ userId, type, session }) => {
   const filter = {
     user: userId,
@@ -55,9 +51,8 @@ const getActiveBookingsCount = async ({ userId, type, session }) => {
   return Booking.countDocuments(filter).session(session);
 };
 
-/* ===============================
-   🧾 CREATE BOOKING
-   =============================== */
+// Create a new booking for a user
+// Includes validation for overlapping bookings, time conflicts, and booking limits
 const createBooking = asyncHandler(async (req, res) => {
   const { machineId, start } = req.body;
   const userId = req.user?._id;
@@ -92,7 +87,7 @@ const createBooking = asyncHandler(async (req, res) => {
       )
         throw new ApiError(409, "This machine cannot be booked now.");
 
-      // User overlap check
+      // Ensure user doesn't already have another overlapping booking
       const userOverlap = await Booking.findOne({
         user: userId,
         status: "booked",
@@ -107,7 +102,7 @@ const createBooking = asyncHandler(async (req, res) => {
         throw new ApiError(409, "You already have a booking during this period.");
       }
 
-      // Machine overlap check
+      // Check if the machine is already booked for the same slot
       const machineOverlap = await Booking.findOne({
         machine: machineId,
         status: "booked",
@@ -122,7 +117,7 @@ const createBooking = asyncHandler(async (req, res) => {
         throw new ApiError(409, "This machine is already booked for that time slot.");
       }
 
-      // Booking limits
+      // Check booking limits (maximum of 2 active washers and 2 active dryers)
       const washerCount = await getActiveBookingsCount({ userId, type: "washer", session });
       const dryerCount = await getActiveBookingsCount({ userId, type: "dryer", session });
 
@@ -131,7 +126,7 @@ const createBooking = asyncHandler(async (req, res) => {
       if (machine.type === "dryer" && dryerCount >= 2)
         throw new ApiError(403, "You have reached the maximum of 2 active dryer bookings.");
 
-      // Create booking
+      // Create the booking and update the machine status
       const [booking] = await Booking.create(
         [
           {
@@ -148,7 +143,7 @@ const createBooking = asyncHandler(async (req, res) => {
       machine.status = "booked";
       await machine.save({ session });
 
-      // ✅ Populate with machine & user for better response
+      // Populate booking with user and machine details for frontend use
       const populated = await Booking.findById(booking._id)
         .populate("machine", "code name type status")
         .populate("user", "name email");
@@ -167,9 +162,7 @@ const createBooking = asyncHandler(async (req, res) => {
   }
 });
 
-/* ===============================
-   ❌ CANCEL BOOKING
-   =============================== */
+// Cancel a user's existing booking and release the machine
 const cancelBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user?._id;
@@ -204,9 +197,7 @@ const cancelBooking = asyncHandler(async (req, res) => {
   }
 });
 
-/* ===============================
-   📅 USER BOOKINGS
-   =============================== */
+// Retrieve all completed or cancelled bookings for a user
 const PastBookings = asyncHandler(async (req, res) => {
   await autoUpdateExpiredBookings();
   const userId = req.user?._id;
@@ -223,6 +214,7 @@ const PastBookings = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, bookings, "Past bookings retrieved"));
 });
 
+// Retrieve all upcoming (active) bookings for a user
 const UpcomingBookings = asyncHandler(async (req, res) => {
   await autoUpdateExpiredBookings();
   const userId = req.user?._id;
@@ -239,9 +231,7 @@ const UpcomingBookings = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, bookings, "Upcoming bookings retrieved"));
 });
 
-/* ===============================
-   🧮 ADMIN BOOKINGS
-   =============================== */
+// Retrieve all bookings for administrative purposes
 const getAllBookings = asyncHandler(async (req, res) => {
   await autoUpdateExpiredBookings();
 
@@ -254,6 +244,7 @@ const getAllBookings = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, bookings, "All bookings retrieved successfully"));
 });
 
+// Retrieve all bookings (including user and machine info) for the admin dashboard
 const adminGetAllBookings = asyncHandler(async (req, res) => {
   await autoUpdateExpiredBookings();
 
@@ -267,6 +258,7 @@ const adminGetAllBookings = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, bookings, "Admin: All bookings retrieved"));
 });
 
+// Allow an admin to cancel any booking, releasing the associated machine
 const adminCancelAnyBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const session = await mongoose.startSession();
@@ -301,9 +293,7 @@ const adminCancelAnyBooking = asyncHandler(async (req, res) => {
   }
 });
 
-/* ===============================
-   ✅ EXPORTS
-   =============================== */
+// Export all controller functions
 export {
   createBooking,
   cancelBooking,
