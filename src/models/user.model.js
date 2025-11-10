@@ -64,9 +64,16 @@ const userSchema = new mongoose.Schema(
       default: "user",
     },
 
+    // Indicates whether the user has been approved by an admin
     isApproved: {
       type: Boolean,
       default: false,
+    },
+
+    // Stores the exact date/time when admin approved the user
+    approvedAt: {
+      type: Date,
+      default: null,
     },
 
     refreshToken: {
