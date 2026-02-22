@@ -51,33 +51,43 @@ It is built to be **lightweight, modular, and scalable**, making it easy to exte
 ## 📂 Project Structure
 laundry-backend/
 │
-├── server.js           # Entry point for the Node.js backend, starts the server
-├── package.json        # Node.js project dependencies and scripts
-├── .env                # Environment variables (PORT, DB connection)
+├── server.js # Entry point, starts the backend server
+├── package.json # Node.js dependencies and scripts
+├── .env # Environment variables (PORT, DB_URI)
 │
-├── config/             # Configuration files
-│   └── db.js           # Database connection setup
+├── config/ # Configuration files
+│ └── db.js # Database connection setup
 │
-├── routes/             # API route definitions
-│   ├── bookings.js     # Routes for booking management
-│   ├── machines.js     # Routes for washer/dryer info
-│   └── users.js        # Routes for user registration & login
+├── routes/ # API route definitions
+│ ├── bookings.js # Routes for booking management
+│ ├── machines.js # Routes for washer/dryer info
+│ └── users.js # Routes for user registration & login
 │
-├── controllers/        # Business logic / API endpoint handlers
-│   ├── bookingController.js
-│   ├── machineController.js
-│   └── userController.js
+├── controllers/ # Business logic / endpoint handlers
+│ ├── bookingController.js
+│ ├── machineController.js
+│ └── userController.js
 │
-├── models/             # Database models (schemas)
-│   ├── Booking.js
-│   ├── Machine.js
-│   └── User.js
+├── models/ # Database schemas/models
+│ ├── Booking.js
+│ ├── Machine.js
+│ └── User.js
 │
-├── middleware/         # Middleware for validation, authentication, errors
-│   ├── authMiddleware.js
-│   └── errorMiddleware.js
+├── middleware/ # Middleware for auth, validation, error handling
+│ ├── authMiddleware.js
+│ └── errorMiddleware.js
 │
-├── utils/              # Helper functions
-│   └── scheduleHelper.js # Handles automatic dryer booking logic
+├── utils/ # Helper functions
+│ └── scheduleHelper.js # Automates dryer booking logic
 │
-└── README.md           # Project documentation
+└── README.md # Project documentation
+
+
+---
+
+## ⚙️ Installation & Setup
+
+1. **Clone the repository**
+
+```bash
+git clone https://github.com/djdeepak14/laundry-backend.git
